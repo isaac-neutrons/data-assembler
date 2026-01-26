@@ -29,6 +29,7 @@ dependencies = [
     "periodictable>=1.6",
     "numpy>=1.24",
     "python-dateutil>=2.8",
+    "click>=8.0",
 ]
 
 [project.optional-dependencies]
