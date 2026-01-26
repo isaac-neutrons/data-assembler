@@ -1,0 +1,103 @@
+"""
+PyArrow schema definitions for lakehouse tables.
+
+These schemas define the Parquet file structure for each model type,
+ensuring compatibility with Apache Iceberg tables.
+"""
+
+import pyarrow as pa
+
+# Schema for Reflectivity measurements
+REFLECTIVITY_SCHEMA = pa.schema(
+    [
+        # Base DataModel fields
+        ("id", pa.string()),
+        ("created_at", pa.timestamp("us", tz="UTC")),
+        ("is_deleted", pa.bool_()),
+        # Measurement fields
+        ("proposal_number", pa.string()),
+        ("facility", pa.string()),
+        ("lab", pa.string()),
+        ("probe", pa.string()),
+        ("technique", pa.string()),
+        ("technique_description", pa.string()),
+        ("is_simulated", pa.bool_()),
+        ("run_title", pa.string()),
+        ("run_number", pa.string()),
+        ("run_start", pa.timestamp("us", tz="UTC")),
+        ("raw_file_path", pa.string()),
+        ("instrument_name", pa.string()),
+        ("sample_id", pa.string()),
+        # Reflectivity-specific fields
+        ("q", pa.list_(pa.float64())),
+        ("r", pa.list_(pa.float64())),
+        ("dr", pa.list_(pa.float64())),
+        ("dq", pa.list_(pa.float64())),
+        ("measurement_geometry", pa.float64()),
+        ("reduction_time", pa.timestamp("us", tz="UTC")),
+        ("reduction_version", pa.string()),
+        ("reduction_parameters", pa.string()),  # JSON string
+    ]
+)
+
+# Schema for Sample records
+SAMPLE_SCHEMA = pa.schema(
+    [
+        # Base DataModel fields
+        ("id", pa.string()),
+        ("created_at", pa.timestamp("us", tz="UTC")),
+        ("is_deleted", pa.bool_()),
+        # Sample fields
+        ("description", pa.string()),
+        ("main_composition", pa.string()),
+        ("geometry", pa.string()),
+        ("environment_ids", pa.list_(pa.string())),
+        # Layers as JSON string (nested struct alternative)
+        ("layers_json", pa.string()),
+        ("substrate_json", pa.string()),
+    ]
+)
+
+# Schema for Environment records
+ENVIRONMENT_SCHEMA = pa.schema(
+    [
+        # Base DataModel fields
+        ("id", pa.string()),
+        ("created_at", pa.timestamp("us", tz="UTC")),
+        ("is_deleted", pa.bool_()),
+        # Environment fields
+        ("description", pa.string()),
+        ("ambient_medium", pa.string()),
+        ("temperature", pa.float64()),
+        ("pressure", pa.float64()),
+        ("relative_humidity", pa.float64()),
+        ("measurement_ids", pa.list_(pa.string())),
+        ("temperature_min", pa.float64()),
+        ("temperature_max", pa.float64()),
+        ("magnetic_field", pa.float64()),
+        ("source_daslogs", pa.string()),  # JSON string
+    ]
+)
+
+
+def get_schema_for_model(model_name: str) -> pa.Schema:
+    """
+    Get the PyArrow schema for a model type.
+
+    Args:
+        model_name: One of 'reflectivity', 'sample', 'environment'
+
+    Returns:
+        The corresponding PyArrow schema
+
+    Raises:
+        ValueError: If model_name is not recognized
+    """
+    schemas = {
+        "reflectivity": REFLECTIVITY_SCHEMA,
+        "sample": SAMPLE_SCHEMA,
+        "environment": ENVIRONMENT_SCHEMA,
+    }
+    if model_name not in schemas:
+        raise ValueError(f"Unknown model: {model_name}. Expected one of {list(schemas.keys())}")
+    return schemas[model_name]
