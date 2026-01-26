@@ -13,7 +13,7 @@ DAS Log naming conventions:
 - Temperature: BL4B:SE:* (Sample Environment)
 - Motors: BL4B:Mot:* (e.g., thi, ths, tthd for theta positions)
 - Slits: S1HWidth, S2HWidth, S3HWidth, SiHWidth
-- Detector: BL4B:Det:* 
+- Detector: BL4B:Det:*
 """
 
 from __future__ import annotations
@@ -39,11 +39,11 @@ class REF_L(Instrument):
     Handler for the REF_L (Liquids Reflectometer) at SNS.
 
     REF_L is optimized for measuring free liquid surfaces and
-    liquid-liquid interfaces using horizontal sample geometry.
+    liquid-solid interfaces using horizontal sample geometry.
     """
 
     name = "REF_L"
-    aliases = ["BL4B", "BL-4B", "LIQUIDS"]
+    aliases = ["BL4B", "BL-4B"]
     beamline = "BL-4B"
 
     defaults = InstrumentDefaults(
@@ -58,12 +58,6 @@ class REF_L(Instrument):
     # DAS log names for various parameters
     # Temperature sensors available on REF_L
     TEMPERATURE_LOGS = [
-        "BL4B:SE:LT:Temperature",  # Liquid trough temperature
-        "BL4B:SE:NORCAL:ReadTemp",  # NORCAL controller
-        "BL4B:SE:PolyScience1:TempRead",  # PolyScience circulator 1
-        "BL4B:SE:PolyScience1:TempReadProbe",
-        "BL4B:SE:PolyScience2:TempRead",  # PolyScience circulator 2
-        "langmuir_subphase_temperature",  # Langmuir trough
         "SampleTemp",  # Generic fallback
     ]
 
@@ -75,7 +69,7 @@ class REF_L(Instrument):
     # Slit widths
     SLIT_LOGS = {
         "S1": ["S1HWidth"],  # Slit 1 horizontal width
-        "S2": ["S2HWidth"],  # Slit 2 horizontal width  
+        "S2": ["S2HWidth"],  # Slit 2 horizontal width
         "S3": ["S3HWidth"],  # Slit 3 horizontal width
         "Si": ["SiHWidth"],  # Incident slit width
     }
@@ -237,27 +231,21 @@ class REF_L(Instrument):
             if reflectivity.q:
                 q_min, q_max = min(reflectivity.q), max(reflectivity.q)
                 if q_min < 0.001:
-                    warnings.append(
-                        f"Q_min ({q_min:.4f}) unusually low for REF_L"
-                    )
+                    warnings.append(f"Q_min ({q_min:.4f}) unusually low for REF_L")
                 if q_max > 0.5:
-                    warnings.append(
-                        f"Q_max ({q_max:.4f}) unusually high for REF_L"
-                    )
+                    warnings.append(f"Q_max ({q_max:.4f}) unusually high for REF_L")
 
         if sample:
             # REF_L is for liquids - check if sample description suggests liquid
             if sample.description:
                 desc_lower = sample.description.lower()
                 # These are fine for liquids reflectometer
-                liquid_keywords = ["liquid", "water", "solvent", "solution", "thf", "oil"]
+                liquid_keywords = ["liquid", "water", "solvent", "solution", "thf"]
                 solid_keywords = ["silicon", "si", "wafer", "substrate"]
 
                 # Having only solid keywords might indicate wrong instrument
                 has_liquid = any(kw in desc_lower for kw in liquid_keywords)
-                has_solid_only = (
-                    any(kw in desc_lower for kw in solid_keywords) and not has_liquid
-                )
+                has_solid_only = any(kw in desc_lower for kw in solid_keywords) and not has_liquid
 
                 if has_solid_only and "on" not in desc_lower:
                     warnings.append(

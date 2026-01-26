@@ -4,13 +4,15 @@ Automated reflectivity data ingestion workflow for the scientific data lakehouse
 
 ## Overview
 
-This package provides tools to ingest reflectometry data from multiple sources:
+This package provides tools to ingest neutron reflectometry data from multiple sources and assemble them into a unified schema for the data lakehouse:
 
-- **Raw data** (HDF5/NeXus → Parquet via nexus-processor)
-- **Reduced data** (text files with Q, R, dR, dQ)
-- **Model data** (refl1d/bumps JSON)
+| Source | Format | Contains |
+|--------|--------|----------|
+| **Reduced data** | Text file (`.txt`) | Q, R, dR, dQ arrays + reduction metadata |
+| **Raw metadata** | Parquet (from nexus-processor) | DAS logs, sample info, instrument config |
+| **Model data** | JSON (refl1d/bumps) | Layer structure, materials, fit parameters |
 
-The workflow links these sources together, enriches reduced data with metadata from raw files, and structures everything according to the lakehouse schema.
+The workflow links these sources together, validates the data, and outputs Parquet files partitioned for Iceberg ingestion.
 
 ## Installation
 
@@ -23,59 +25,163 @@ For development:
 pip install -e ".[dev]"
 ```
 
-## Usage
-
-### CLI
+## Quick Start
 
 ```bash
-# Ingest a reduced data file (auto-discovers related files)
-data-assembler ingest /path/to/REFL_218386_combined_data_auto.txt
-
-# Ingest with explicit file paths
+# Basic ingest with all three data sources
 data-assembler ingest \
-    --reduced /path/to/REFL_218386_combined_data_auto.txt \
-    --parquet-dir /path/to/parquet_output/ \
-    --model /path/to/model.json
+    -r ~/data/REFL_218386_combined_data_auto.txt \
+    -p ~/data/parquet/ \
+    -m ~/data/model.json \
+    -o ~/data/output/
+
+# Also output JSON (for AI/LLM consumption)
+data-assembler ingest -r data.txt -o output/ --json
+
+# Debug mode: see full schema with missing field indicators
+data-assembler ingest -r data.txt -o output/ --debug
 ```
 
-### Python API
+## CLI Commands
+
+### `ingest` - Main ingestion workflow
+
+```bash
+data-assembler ingest [OPTIONS]
+
+Options:
+  -r, --reduced PATH   Path to reduced reflectivity data file (.txt) [required]
+  -p, --parquet PATH   Directory containing parquet files from nexus-processor
+  -m, --model PATH     Path to refl1d/bumps model JSON file
+  -o, --output PATH    Output directory for parquet files [required]
+  --skip-validation    Skip validation step
+  --dry-run            Parse and validate but don't write output
+  --json               Also write JSON files (in addition to Parquet)
+  --debug              Write debug JSON with full schema and missing fields
+```
+
+### `detect` - Identify file type
+
+```bash
+data-assembler detect /path/to/file
+data-assembler detect /path/to/file --json
+```
+
+### `find` - Locate related files
+
+```bash
+data-assembler find --run 218386 --search-path ~/data/
+```
+
+### `validate` - Validate without writing
+
+```bash
+data-assembler validate -r reduced.txt -p parquet_dir/
+```
+
+## Python API
 
 ```python
-from assembler.workflow import IngestWorkflow
 from assembler.parsers import ReducedParser, ParquetParser, ModelParser
+from assembler.workflow import DataAssembler
+from assembler.writers import write_assembly_to_parquet
 
-# Create workflow
-workflow = IngestWorkflow()
+# Parse input files
+reduced = ReducedParser().parse("REFL_218386_combined_data_auto.txt")
+parquet = ParquetParser().parse_directory("./parquet/", run_number=218386)
+model = ModelParser().parse("model.json")
 
-# Ingest data
-result = workflow.ingest(
-    reduced_file="/path/to/REFL_218386_combined_data_auto.txt",
-    parquet_dir="/path/to/parquet_output/",
-    model_file="/path/to/model.json"
-)
+# Assemble into unified schema
+assembler = DataAssembler()
+result = assembler.assemble(reduced=reduced, parquet=parquet, model=model)
 
 # Access assembled data
-print(result.measurement)
-print(result.sample)
-print(result.environment)
+print(result.reflectivity)  # Measurement with Q/R/dR/dQ
+print(result.sample)        # Layer structure from model
+print(result.environment)   # Conditions from DAS logs
+
+# Write to parquet
+paths = write_assembly_to_parquet(result, output_dir)
+```
+
+## Instrument Support
+
+The assembler includes instrument-specific handlers for extracting metadata from DAS logs:
+
+- **REF_L** (Liquids Reflectometer, SNS BL-4B) - Temperature sensors, slit widths, motor positions
+
+```python
+from assembler.instruments import REF_L
+
+# Extract environment from parquet data
+env = REF_L.extract_environment(parquet_data)
+meta = REF_L.extract_metadata(parquet_data)
+```
+
+## Output Schema
+
+### Reflectivity Table
+- `proposal_number`, `facility`, `instrument_name`
+- `run_number`, `run_title`, `run_start`
+- `q`, `r`, `dr`, `dq` (arrays)
+- `reduction_time`, `reduction_version`
+
+### Sample Table  
+- `description`, `main_composition`
+- `layers[]` with thickness, roughness, material (SLD, composition)
+- `substrate` layer
+
+### Environment Table
+- `temperature`, `temperature_min`, `temperature_max`
+- `pressure`, `relative_humidity`
+- `ambient_medium`
+- `source_daslogs` (provenance)
+
+## Debug Output
+
+Use `--debug` to generate `debug_schema.json` with:
+- Full schema showing all fields
+- Missing field indicators with descriptions
+- Field coverage percentages
+- Data source summary (what came from where)
+
+```json
+{
+  "field_coverage": {
+    "reflectivity": {"coverage_pct": 79.2, "missing_field_names": ["lab", "sample_id"]},
+    "sample": {"coverage_pct": 70.6, "missing_field_names": ["geometry"]},
+    "environment": {"coverage_pct": 38.5, "missing_field_names": ["temperature"]}
+  }
+}
 ```
 
 ## Project Structure
 
 ```
 data-assembler/
-├── src/
-│   └── assembler/
-│       ├── models/           # Pydantic models (lakehouse schema)
-│       ├── parsers/          # File parsers
-│       ├── tools/            # Agent-callable tools
-│       ├── workflow/         # Orchestration logic
-│       ├── ai/               # AI-assisted components
-│       └── cli/              # Command-line interface
+├── src/assembler/
+│   ├── cli/           # Click-based CLI
+│   ├── instruments/   # Instrument-specific handlers (REF_L, etc.)
+│   ├── models/        # Pydantic models (Reflectivity, Sample, Environment)
+│   ├── parsers/       # File parsers (reduced, parquet, model)
+│   ├── tools/         # File detection, finding utilities
+│   ├── validation.py  # Data validation
+│   ├── workflow/      # Assembly orchestration
+│   └── writers/       # Parquet/JSON output
 ├── tests/
 └── docs/
 ```
 
+## Development
+
+```bash
+# Run tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=assembler
+```
+
 ## License
 
-MIT
+BSD-3-Clause

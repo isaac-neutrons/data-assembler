@@ -74,7 +74,7 @@ class Measurement(DataModel):
     )
 
     lab: Optional[str] = Field(
-        default=None,
+        default='ORNL',
         description="Laboratory or institution",
     )
 
