@@ -6,8 +6,9 @@ Each builder converts parsed data into target schema models.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Type
 
+from assembler.instruments import Instrument, InstrumentRegistry
 from assembler.models import (
     Environment,
     Facility,
@@ -25,7 +26,7 @@ from .result import AssemblyResult
 logger = logging.getLogger(__name__)
 
 
-# Mapping of instrument prefixes to facilities
+# Mapping of instrument prefixes to facilities (fallback if no handler)
 FACILITY_INSTRUMENTS = {
     "REF_L": Facility.SNS,
     "REF_M": Facility.SNS,
@@ -56,6 +57,7 @@ def build_reflectivity(
     reduced: ReducedData,
     parquet: Optional[ParquetData],
     result: AssemblyResult,
+    instrument_handler: Optional[Type[Instrument]] = None,
 ) -> Optional[Reflectivity]:
     """
     Build Reflectivity model from reduced and parquet data.
@@ -67,6 +69,7 @@ def build_reflectivity(
         reduced: Parsed reduced reflectivity data (required)
         parquet: Parsed parquet metadata (optional, enriches result)
         result: AssemblyResult to record warnings/errors
+        instrument_handler: Optional specific instrument handler to use
 
     Returns:
         Assembled Reflectivity model, or None on error
@@ -79,7 +82,12 @@ def build_reflectivity(
             run_number = str(meta.run_number)
             run_title = meta.title or reduced.run_title or "Unknown"
             instrument = meta.instrument_id
-            facility = detect_facility(instrument)
+
+            # Get instrument handler
+            if instrument_handler is None:
+                instrument_handler = InstrumentRegistry.get_handler(instrument)
+
+            facility = instrument_handler.defaults.facility
 
             # Parse start time
             if meta.start_time:
@@ -98,12 +106,19 @@ def build_reflectivity(
             run_number = str(reduced.run_number) if reduced.run_number else "UNKNOWN"
             run_title = reduced.run_title or "Unknown"
             instrument = "REF_L"  # Default assumption
-            facility = Facility.SNS
+
+            # Get instrument handler
+            if instrument_handler is None:
+                instrument_handler = InstrumentRegistry.get_handler(instrument)
+
+            facility = instrument_handler.defaults.facility
             run_start = reduced.run_start_time or datetime.now(timezone.utc)
             raw_file_path = None
 
             if proposal_number == "UNKNOWN":
                 result.warnings.append("Proposal number not found, using 'UNKNOWN'")
+
+        logger.debug(f"Using instrument handler: {instrument_handler.name}")
 
         # Build reduction parameters dict if any are set
         reduction_parameters = None
@@ -141,6 +156,11 @@ def build_reflectivity(
         if reduced.runs:
             reflectivity.measurement_geometry = reduced.runs[0].two_theta
 
+        # Run instrument-specific validation
+        validation_warnings = instrument_handler.validate_data(reflectivity=reflectivity)
+        for warning in validation_warnings:
+            result.warnings.append(warning)
+
         return reflectivity
 
     except Exception as e:
@@ -152,44 +172,68 @@ def build_reflectivity(
 def build_environment(
     parquet: ParquetData,
     result: AssemblyResult,
+    instrument_handler: Optional[Type[Instrument]] = None,
 ) -> Optional[Environment]:
     """
     Build Environment model from parquet daslogs.
 
-    Searches for common environment variables (temperature, pressure)
-    in the DAS logs and builds an Environment model.
+    Uses instrument-specific handlers to extract environment data
+    from DAS logs with appropriate naming conventions.
 
     Args:
         parquet: Parsed parquet data containing daslogs
         result: AssemblyResult to record warnings/issues
+        instrument_handler: Optional specific instrument handler to use
 
     Returns:
         Assembled Environment model, or None on error
     """
     try:
-        temperature = _extract_temperature(parquet)
-        pressure = _extract_pressure(parquet)
+        # Get the appropriate instrument handler
+        if instrument_handler is None:
+            instrument_handler = InstrumentRegistry.get_handler(parquet.instrument_id)
+
+        logger.debug(f"Using instrument handler: {instrument_handler.name}")
+
+        # Extract environment using instrument-specific logic
+        extracted = instrument_handler.extract_environment(parquet)
+
+        # Also extract additional metadata for logging
+        metadata = instrument_handler.extract_metadata(parquet)
+        if metadata.extra:
+            logger.debug(f"Instrument metadata: {metadata.extra}")
 
         # Generate description
-        description = _generate_environment_description(
-            temperature=temperature,
-            pressure=pressure,
-            sample_name=parquet.sample.name if parquet.sample else None,
-        )
+        if extracted.description:
+            description = extracted.description
+        else:
+            description = _generate_environment_description(
+                temperature=extracted.temperature,
+                pressure=extracted.pressure,
+                sample_name=parquet.sample.name if parquet.sample else None,
+            )
 
-        # Collect source daslog names (not the full data)
-        source_daslogs = list(parquet.daslogs.keys()) if parquet.daslogs else None
+        # Collect source daslog names
+        source_daslogs = extracted.source_logs
+        if source_daslogs is None:
+            source_daslogs = list(parquet.daslogs.keys()) if parquet.daslogs else None
 
         environment = Environment(
             description=description,
-            temperature=temperature,
-            pressure=pressure,
+            temperature=extracted.temperature,
+            temperature_min=extracted.temperature_min,
+            temperature_max=extracted.temperature_max,
+            pressure=extracted.pressure,
+            magnetic_field=extracted.magnetic_field,
+            relative_humidity=extracted.relative_humidity,
             source_daslogs=source_daslogs if source_daslogs else None,
         )
 
         # Flag for review if key values missing
-        if temperature is None:
-            result.needs_review["environment_temperature"] = "Temperature not found in daslogs"
+        if extracted.temperature is None:
+            result.needs_review["environment_temperature"] = (
+                f"Temperature not found in daslogs (checked: {instrument_handler.name} sensors)"
+            )
 
         return environment
 
@@ -275,35 +319,6 @@ def build_sample(
 
 
 # --- Private helper functions ---
-
-
-def _extract_temperature(parquet: ParquetData) -> Optional[float]:
-    """Extract temperature from daslogs."""
-    temp_logs = ["SampleTemp", "Temperature", "Temp", "BL4B:SE:SampleTemp"]
-
-    for log_name in temp_logs:
-        # Check with and without instrument prefix
-        for prefix in ["", f"{parquet.instrument_id}:" if parquet.instrument_id else ""]:
-            full_name = prefix + log_name
-            if full_name in parquet.daslogs:
-                log = parquet.daslogs[full_name]
-                return log.average_value
-
-    return None
-
-
-def _extract_pressure(parquet: ParquetData) -> Optional[float]:
-    """Extract pressure from daslogs."""
-    pressure_logs = ["Pressure", "VacuumPressure"]
-
-    for log_name in pressure_logs:
-        for prefix in ["", f"{parquet.instrument_id}:" if parquet.instrument_id else ""]:
-            full_name = prefix + log_name
-            if full_name in parquet.daslogs:
-                log = parquet.daslogs[full_name]
-                return log.average_value
-
-    return None
 
 
 def _determine_main_composition(layers: list[Layer]) -> str:

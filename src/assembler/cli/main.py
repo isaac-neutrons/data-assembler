@@ -22,7 +22,7 @@ from assembler.parsers import ModelParser, ParquetParser, ReducedParser
 from assembler.tools import FileFinder, detect_file, extract_run_number
 from assembler.validation import DataValidator
 from assembler.workflow import AssemblyResult, DataAssembler
-from assembler.writers import write_assembly_to_parquet
+from assembler.writers import write_assembly_to_json, write_assembly_to_parquet
 
 
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
@@ -344,7 +344,8 @@ def validate(
 )
 @click.option("--skip-validation", is_flag=True, help="Skip validation step")
 @click.option("--dry-run", is_flag=True, help="Parse and validate but don't write output")
-@click.option("--json", "as_json", is_flag=True, help="Output result as JSON")
+@click.option("--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)")
+@click.option("--debug", "debug_output", is_flag=True, help="Write debug JSON with full schema and missing field indicators")
 @pass_config
 def ingest(
     config: Config,
@@ -355,6 +356,7 @@ def ingest(
     skip_validation: bool,
     dry_run: bool,
     as_json: bool,
+    debug_output: bool,
 ) -> None:
     """Ingest data and write to parquet.
 
@@ -424,15 +426,18 @@ def ingest(
                 )
 
     # Report assembly result
-    if as_json:
-        _print_assembly_summary_json(result)
-    else:
-        _print_assembly_summary(result)
+    _print_assembly_summary(result)
 
     # Write output
     if dry_run:
         logger.info("Dry run - skipping output")
         click.echo(click.style("\nDry run - no files written", fg="cyan"))
+        # Still write debug output in dry-run mode
+        if debug_output:
+            output_path = Path(output)
+            output_path.mkdir(parents=True, exist_ok=True)
+            debug_path = _write_debug_json(result, reduced_data, parquet_data, model_data, output_path)
+            click.echo(click.style(f"\nDebug output: {debug_path}", fg="cyan"))
         return
 
     logger.info(f"Writing to: {output}")
@@ -440,12 +445,206 @@ def ingest(
     output_path.mkdir(parents=True, exist_ok=True)
 
     try:
+        # Write parquet files
         paths = write_assembly_to_parquet(result, output_path)
+
+        # Write JSON files if requested (for AI-ready data consumers)
+        if as_json:
+            json_dir = output_path / "json"
+            json_paths = write_assembly_to_json(result, json_dir)
+            for name, path in json_paths.items():
+                paths[f"{name}_json"] = path
+
+        # Write debug JSON if requested
+        if debug_output:
+            debug_path = _write_debug_json(result, reduced_data, parquet_data, model_data, output_path)
+            paths["debug"] = str(debug_path)
+
         click.echo(click.style("\nOutput files:", fg="green"))
         for table_name, path in paths.items():
             click.echo(f"  {table_name}: {path}")
     except Exception as e:
         raise click.ClickException(f"Error writing output: {e}")
+
+
+def _write_debug_json(
+    result: AssemblyResult,
+    reduced_data,
+    parquet_data,
+    model_data,
+    output_path: Path,
+) -> Path:
+    """
+    Write comprehensive debug JSON showing full schema with missing field indicators.
+    
+    This helps identify what data is available, what's missing, and where it comes from.
+    """
+    from datetime import datetime, timezone
+    from enum import Enum
+    
+    def serialize_value(v, field_name: str = ""):
+        """Serialize a value, marking missing fields clearly."""
+        if v is None:
+            return {"_value": None, "_status": "MISSING", "_note": "Field not populated"}
+        if isinstance(v, Enum):
+            return v.value
+        if isinstance(v, datetime):
+            return v.isoformat()
+        if isinstance(v, list):
+            if len(v) == 0:
+                return {"_value": [], "_status": "EMPTY_LIST"}
+            # For large arrays, summarize
+            if len(v) > 10 and all(isinstance(x, (int, float)) for x in v):
+                return {
+                    "_type": "array",
+                    "_length": len(v),
+                    "_min": min(v),
+                    "_max": max(v),
+                    "_first_5": v[:5],
+                    "_status": "OK",
+                }
+            return v
+        if hasattr(v, "model_dump"):
+            return _model_to_debug_dict(v)
+        return v
+
+    def _model_to_debug_dict(model) -> dict:
+        """Convert a Pydantic model to debug dict with field status."""
+        if model is None:
+            return {"_status": "MISSING", "_note": "Model not created"}
+        
+        result = {}
+        # Get all fields from the model class (not instance)
+        for field_name, field_info in model.__class__.model_fields.items():
+            value = getattr(model, field_name, None)
+            serialized = serialize_value(value, field_name)
+            
+            # Add field metadata
+            if isinstance(serialized, dict) and "_status" in serialized:
+                serialized["_field_description"] = field_info.description or ""
+                if field_info.is_required():
+                    serialized["_required"] = True
+            
+            result[field_name] = serialized
+        
+        return result
+
+    def _source_summary(reduced, parquet, model) -> dict:
+        """Summarize what data sources were provided."""
+        summary = {
+            "reduced": {
+                "provided": reduced is not None,
+                "file": reduced.file_path if reduced else None,
+                "fields_with_data": [],
+                "fields_missing": [],
+            },
+            "parquet": {
+                "provided": parquet is not None,
+                "metadata_present": parquet.metadata is not None if parquet else False,
+                "sample_present": parquet.sample is not None if parquet else False,
+                "daslogs_count": len(parquet.daslogs) if parquet else 0,
+                "daslog_names": sorted(parquet.daslogs.keys())[:50] if parquet else [],  # First 50
+            },
+            "model": {
+                "provided": model is not None,
+                "file": model.file_path if model and hasattr(model, "file_path") else None,
+                "layers_count": len(model.layers) if model and model.layers else 0,
+                "total_thickness": model.total_thickness if model else None,
+            },
+        }
+        
+        # Analyze reduced data fields
+        if reduced:
+            for attr in ["experiment_id", "run_number", "run_title", "run_start_time", 
+                        "reduction_time", "reduction_version", "q_summing", "tof_weighted",
+                        "bck_in_q", "theta_offset"]:
+                val = getattr(reduced, attr, None)
+                if val is not None:
+                    summary["reduced"]["fields_with_data"].append(attr)
+                else:
+                    summary["reduced"]["fields_missing"].append(attr)
+        
+        return summary
+
+    # Build debug output
+    debug_output = {
+        "_meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "purpose": "Debug output showing full schema with missing field indicators",
+            "legend": {
+                "MISSING": "Field is None/not populated",
+                "EMPTY_LIST": "Field is an empty list",
+                "OK": "Field has data",
+            },
+        },
+        "data_sources": _source_summary(reduced_data, parquet_data, model_data),
+        "assembled_data": {
+            "reflectivity": _model_to_debug_dict(result.reflectivity) if result.reflectivity else {
+                "_status": "NOT_ASSEMBLED",
+                "_note": "Reflectivity model was not created",
+            },
+            "sample": _model_to_debug_dict(result.sample) if result.sample else {
+                "_status": "NOT_ASSEMBLED", 
+                "_note": "Sample model was not created (requires --model file)",
+            },
+            "environment": _model_to_debug_dict(result.environment) if result.environment else {
+                "_status": "NOT_ASSEMBLED",
+                "_note": "Environment model was not created",
+            },
+        },
+        "assembly_errors": result.errors if result.errors else [],
+        "assembly_warnings": result.warnings if result.warnings else [],
+    }
+    
+    # Add field coverage summary
+    def count_fields(data: dict, prefix: str = "") -> tuple[int, int, list]:
+        """Count populated vs missing fields."""
+        populated = 0
+        missing = 0
+        missing_fields = []
+        
+        for key, value in data.items():
+            if key.startswith("_"):
+                continue
+            full_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                if value.get("_status") == "MISSING":
+                    missing += 1
+                    missing_fields.append(full_key)
+                elif "_status" in value:
+                    populated += 1
+                else:
+                    # Nested dict, recurse
+                    p, m, mf = count_fields(value, full_key)
+                    populated += p
+                    missing += m
+                    missing_fields.extend(mf)
+            else:
+                populated += 1
+        return populated, missing, missing_fields
+    
+    coverage = {}
+    for section in ["reflectivity", "sample", "environment"]:
+        data = debug_output["assembled_data"].get(section, {})
+        if isinstance(data, dict) and data.get("_status") not in ["NOT_ASSEMBLED", "MISSING"]:
+            p, m, mf = count_fields(data)
+            coverage[section] = {
+                "populated_fields": p,
+                "missing_fields": m,
+                "coverage_pct": round(100 * p / (p + m), 1) if (p + m) > 0 else 0,
+                "missing_field_names": mf,
+            }
+        else:
+            coverage[section] = {"status": "not_assembled"}
+    
+    debug_output["field_coverage"] = coverage
+    
+    # Write to file
+    debug_path = output_path / "debug_schema.json"
+    with open(debug_path, "w") as f:
+        json.dump(debug_output, f, indent=2, default=str)
+    
+    return debug_path
 
 
 def _print_assembly_summary(result: AssemblyResult) -> None:
@@ -477,42 +676,6 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
             click.echo(f"    Temperature: {e.temperature:.1f} K")
     else:
         click.echo("  Environment: Not assembled")
-
-
-def _print_assembly_summary_json(result: AssemblyResult) -> None:
-    """Print assembly summary as JSON."""
-    output: dict = {
-        "reflectivity": None,
-        "sample": None,
-        "environment": None,
-    }
-    if result.reflectivity:
-        facility = result.reflectivity.facility
-        if hasattr(facility, "value"):
-            facility = facility.value
-        output["reflectivity"] = {
-            "run_number": result.reflectivity.run_number,
-            "run_title": result.reflectivity.run_title,
-            "facility": facility,
-            "q_points": len(result.reflectivity.q) if result.reflectivity.q else 0,
-            "q_range": (
-                [min(result.reflectivity.q), max(result.reflectivity.q)]
-                if result.reflectivity.q
-                else None
-            ),
-        }
-    if result.sample:
-        output["sample"] = {
-            "description": result.sample.description,
-            "layers": len(result.sample.layers) if result.sample.layers else 0,
-            "main_composition": result.sample.main_composition,
-        }
-    if result.environment:
-        output["environment"] = {
-            "description": result.environment.description,
-            "temperature": result.environment.temperature,
-        }
-    click.echo(json.dumps(output, indent=2))
 
 
 def app(args: Optional[list[str]] = None) -> int:

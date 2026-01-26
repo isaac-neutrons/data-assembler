@@ -101,12 +101,13 @@ class ReducedParser:
     """
 
     # Regex patterns for header parsing
+    # Note: patterns with $ need MULTILINE to match end-of-line, not just end-of-string
     PATTERNS = {
         "experiment": re.compile(r"Experiment\s+(IPTS-\d+)\s+Run\s+(\d+)", re.IGNORECASE),
-        "reduction": re.compile(r"Reduction\s+(.+)$", re.IGNORECASE),
-        "run_title": re.compile(r"Run title:\s*(.+)$", re.IGNORECASE),
-        "run_start": re.compile(r"Run start time:\s*(.+)$", re.IGNORECASE),
-        "reduction_time": re.compile(r"Reduction time:\s*(.+)$", re.IGNORECASE),
+        "reduction": re.compile(r"Reduction\s+(.+)$", re.IGNORECASE | re.MULTILINE),
+        "run_title": re.compile(r"Run title:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
+        "run_start": re.compile(r"Run start time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
+        "reduction_time": re.compile(r"Reduction time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
         "q_summing": re.compile(r"Q summing:\s*(True|False)", re.IGNORECASE),
         "tof_weighted": re.compile(r"TOF weighted:\s*(True|False)", re.IGNORECASE),
         "bck_in_q": re.compile(r"Bck in Q:\s*(True|False)", re.IGNORECASE),

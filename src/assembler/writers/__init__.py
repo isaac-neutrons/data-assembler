@@ -1,21 +1,24 @@
 """
-Writers module for outputting assembled data to Parquet files.
+Writers module for outputting assembled data to Parquet and JSON files.
 
 This module provides functionality to write assembled Reflectivity, Sample,
-and Environment records to Parquet files suitable for Apache Iceberg tables.
+and Environment records to Parquet files (for Apache Iceberg tables) or
+JSON files (for AI-ready data consumers).
 
 Module structure:
 - schemas.py: PyArrow schema definitions for lakehouse tables
 - serializers.py: Model-to-record conversion utilities
 - parquet_writer.py: Main ParquetWriter class
+- json_writer.py: JSONWriter class for JSON output
 """
 
 from pathlib import Path
 
 from assembler.workflow import AssemblyResult
 
-# Re-export writer class
+# Re-export writer classes
 from .parquet_writer import ParquetWriter
+from .json_writer import JSONWriter, write_assembly_to_json
 
 # Re-export schemas
 from .schemas import (
@@ -44,10 +47,12 @@ __all__ = [
     "reflectivity_to_record",
     "sample_to_record",
     "environment_to_record",
-    # Writer
+    # Writers
     "ParquetWriter",
-    # Convenience function
+    "JSONWriter",
+    # Convenience functions
     "write_assembly_to_parquet",
+    "write_assembly_to_json",
 ]
 
 

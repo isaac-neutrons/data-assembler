@@ -133,6 +133,47 @@ class TestCLIIngest:
         refl_dirs = list(output_dir.glob("reflectivity/**/*.parquet"))
         assert len(refl_dirs) >= 1
 
+    def test_ingest_writes_manifest_json(self, tmp_path):
+        """Test ingest --json writes JSON files to output directory."""
+        reduced_file = tmp_path / "REFL_218386_test.txt"
+        reduced_file.write_text("""# Experiment IPTS-12345
+# Run 218386
+# Reduction timestamp: 2025-01-01 12:00:00
+# Q [1/Angstrom] R dR dQ
+0.01 1.0 0.1 0.001
+0.02 0.9 0.1 0.001
+""")
+
+        output_dir = tmp_path / "output"
+        result = app([
+            "ingest",
+            "--reduced", str(reduced_file),
+            "--output", str(output_dir),
+            "--json",
+        ])
+        assert result == 0
+
+        # Check JSON directory was created
+        json_dir = output_dir / "json"
+        assert json_dir.exists()
+
+        # Check reflectivity.json was created
+        refl_json = json_dir / "reflectivity.json"
+        assert refl_json.exists()
+
+        # Verify JSON content matches schema
+        import json
+        with open(refl_json) as f:
+            data = json.load(f)
+
+        # Should have the same fields as the parquet schema
+        assert "id" in data
+        assert "run_number" in data
+        assert "q" in data
+        assert "r" in data
+        assert int(data["run_number"]) == 218386
+        assert len(data["q"]) == 2
+
 
 class TestCLIHelp:
     """Tests for CLI help."""
