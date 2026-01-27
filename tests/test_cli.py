@@ -65,24 +65,6 @@ class TestCLIFind:
         assert result == 1  # Should fail without run number
 
 
-class TestCLIValidate:
-    """Tests for the validate command."""
-
-    def test_validate_minimal_file(self, tmp_path):
-        """Test validation with a minimal reduced file."""
-        reduced_file = tmp_path / "REFL_218386_test.txt"
-        reduced_file.write_text("""# Experiment IPTS-12345
-# Run 218386
-# Q [1/Angstrom] R dR dQ
-0.01 1.0 0.1 0.001
-0.02 0.9 0.1 0.001
-""")
-
-        result = app(["validate", "--reduced", str(reduced_file)])
-        # Should pass validation (might have warnings but not errors)
-        assert result == 0
-
-
 class TestCLIIngest:
     """Tests for the ingest command."""
 

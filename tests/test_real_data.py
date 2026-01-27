@@ -13,7 +13,6 @@ import pytest
 from assembler.parsers import ParquetParser, ReducedParser
 from assembler.tools import detect_file_type, extract_run_number, FileType
 from assembler.workflow import DataAssembler
-from assembler.validation import DataValidator
 from assembler.writers import ParquetWriter
 
 
@@ -120,18 +119,12 @@ class TestFullWorkflowWithRealData:
 
         # Check result
         assert result.reflectivity is not None
-        assert result.reflectivity.run_number == "218386"
-        assert len(result.reflectivity.q) > 0
+        assert result.reflectivity["run_number"] == "218386"
+        refl_data = result.reflectivity.get("reflectivity", {})
+        assert len(refl_data.get("q", [])) > 0
 
-        # Validate
-        validator = DataValidator()
-        validation = validator.validate(result)
-        
-        # Should pass without critical errors
-        errors = [i for i in validation.issues if i.severity == "error"]
-        # Allow assembly errors from missing model but not schema errors
-        schema_errors = [e for e in errors if "assembly" not in e.field]
-        assert len(schema_errors) == 0, f"Schema validation errors: {schema_errors}"
+        # Check no assembly errors
+        assert not result.has_errors, f"Assembly errors: {result.errors}"
 
     def test_write_real_data_to_parquet(self, real_parquet_dir, real_reduced_file, tmp_path):
         """Test writing assembled real data to parquet."""

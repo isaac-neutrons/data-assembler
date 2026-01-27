@@ -21,7 +21,6 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from assembler.enums import Facility
 from assembler.parsers import ParquetData
 
 from .base import (
@@ -47,7 +46,7 @@ class REF_L(Instrument):
     beamline = "BL-4B"
 
     defaults = InstrumentDefaults(
-        facility=Facility.SNS,
+        facility="SNS",
         laboratory="ORNL",
         probe="neutrons",
         technique="reflectivity",

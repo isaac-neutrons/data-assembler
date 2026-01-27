@@ -4,7 +4,6 @@ Tests for instrument-specific handlers.
 
 import pytest
 
-from assembler.enums import Facility
 from assembler.instruments import Instrument, InstrumentRegistry, REF_L
 from assembler.instruments.base import GenericInstrument, ExtractedEnvironment
 
@@ -48,7 +47,7 @@ class TestREFL:
 
     def test_defaults(self):
         """Test REF_L default values."""
-        assert REF_L.defaults.facility == Facility.SNS
+        assert REF_L.defaults.facility == "SNS"
         assert REF_L.defaults.probe == "neutrons"
         assert REF_L.defaults.technique == "reflectivity"
         assert REF_L.defaults.wavelength == 6.0
@@ -80,7 +79,7 @@ class TestGenericInstrument:
 
     def test_defaults(self):
         """Test GenericInstrument defaults to SNS."""
-        assert GenericInstrument.defaults.facility == Facility.SNS
+        assert GenericInstrument.defaults.facility == "SNS"
 
     def test_matches_nothing(self):
         """Test GenericInstrument doesn't match any specific instrument."""

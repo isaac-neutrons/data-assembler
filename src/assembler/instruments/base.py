@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional, Type
 
-from assembler.enums import Facility
 from assembler.parsers import ParquetData
 
 
@@ -18,7 +17,7 @@ from assembler.parsers import ParquetData
 class InstrumentDefaults:
     """Default values for an instrument."""
 
-    facility: Facility
+    facility: str
     laboratory: str = "ORNL"
     probe: str = "neutrons"
     technique: str = "reflectivity"
@@ -69,7 +68,7 @@ class Instrument(ABC):
     name: str = "UNKNOWN"
     aliases: list[str] = []
     beamline: Optional[str] = None
-    defaults: InstrumentDefaults = InstrumentDefaults(facility=Facility.SNS)
+    defaults: InstrumentDefaults = InstrumentDefaults(facility="SNS")
 
     @classmethod
     def matches(cls, instrument_id: Optional[str]) -> bool:
@@ -274,7 +273,7 @@ class GenericInstrument(Instrument):
 
     name = "GENERIC"
     aliases = []
-    defaults = InstrumentDefaults(facility=Facility.SNS)
+    defaults = InstrumentDefaults(facility="SNS")
 
     @classmethod
     def extract_environment(cls, parquet: ParquetData) -> ExtractedEnvironment:

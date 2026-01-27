@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional, Type
 
-from assembler.enums import Facility
 from assembler.instruments import Instrument, InstrumentRegistry
 from assembler.parsers import ModelData, ParquetData, ReducedData
 
@@ -82,7 +81,7 @@ def build_reflectivity_record(
             if instrument_handler is None:
                 instrument_handler = InstrumentRegistry.get_handler(instrument)
 
-            facility = instrument_handler.defaults.facility.value
+            facility = instrument_handler.defaults.facility
 
             # Parse start time
             if meta.start_time:
@@ -106,7 +105,7 @@ def build_reflectivity_record(
             if instrument_handler is None:
                 instrument_handler = InstrumentRegistry.get_handler(instrument)
 
-            facility = instrument_handler.defaults.facility.value
+            facility = instrument_handler.defaults.facility
             run_start = reduced.run_start_time or datetime.now(timezone.utc)
             raw_file_path = None
 

@@ -20,7 +20,6 @@ from assembler.tools import (
     extract_ipts,
     extract_run_number,
 )
-from assembler.validation import DataValidator, ValidationResult
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers import ParquetWriter, write_assembly_to_parquet
 
@@ -195,161 +194,6 @@ class TestDataAssembler:
         
         assert result.environment is not None
         assert result.environment["temperature"] == 298.0
-
-
-class TestValidation:
-    """Tests for the validation layer."""
-
-    def test_validate_assembly_passes(self):
-        """Test validation of valid assembly with reflectivity record."""
-        validator = DataValidator()
-        
-        refl_record = {
-            "id": None,
-            "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            "proposal_number": "IPTS-12345",
-            "facility": "SNS",
-            "laboratory": "ORNL",
-            "probe": "neutrons",
-            "technique": "reflectivity",
-            "technique_description": None,
-            "is_simulated": False,
-            "run_title": "Test Run",
-            "run_number": "218386",
-            "run_start": datetime.now(timezone.utc),
-            "raw_file_path": None,
-            "instrument_name": "REF_L",
-            "sample_id": None,
-            "reflectivity": {
-                "measurement_geometry": None,
-                "reduction_time": None,
-                "reduction_version": None,
-                "reduction_parameters": None,
-                "q": [0.01, 0.02, 0.03],
-                "r": [1.0, 0.8, 0.5],
-                "dr": [0.01, 0.01, 0.02],
-                "dq": [0.001, 0.001, 0.002],
-            },
-        }
-        
-        assembly = AssemblyResult(reflectivity=refl_record)
-        result = validator.validate(assembly)
-        
-        assert isinstance(result, ValidationResult)
-        # Check for critical errors
-        errors = [i for i in result.issues if i.severity == "error"]
-        assert len(errors) == 0, f"Unexpected errors: {errors}"
-
-    def test_validate_array_length_mismatch(self):
-        """Test validation catches array length mismatches."""
-        validator = DataValidator()
-        
-        refl_record = {
-            "id": None,
-            "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            "proposal_number": "IPTS-12345",
-            "facility": "SNS",
-            "laboratory": "ORNL",
-            "probe": "neutrons",
-            "technique": "reflectivity",
-            "technique_description": None,
-            "is_simulated": False,
-            "run_title": "Test Run",
-            "run_number": "218386",
-            "run_start": datetime.now(timezone.utc),
-            "raw_file_path": None,
-            "instrument_name": "REF_L",
-            "sample_id": None,
-            "reflectivity": {
-                "measurement_geometry": None,
-                "reduction_time": None,
-                "reduction_version": None,
-                "reduction_parameters": None,
-                "q": [0.01, 0.02, 0.03],
-                "r": [1.0, 0.8],  # Wrong length!
-                "dr": [0.01, 0.01, 0.02],
-                "dq": [0.001, 0.001, 0.002],
-            },
-        }
-        
-        assembly = AssemblyResult(reflectivity=refl_record)
-        result = validator.validate(assembly)
-        
-        errors = [i for i in result.issues if i.severity == "error"]
-        assert len(errors) > 0
-        assert any("length" in str(i.message).lower() for i in errors)
-
-    def test_validate_negative_uncertainties(self):
-        """Test validation catches negative uncertainties."""
-        validator = DataValidator()
-        
-        refl_record = {
-            "id": None,
-            "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            "proposal_number": "IPTS-12345",
-            "facility": "SNS",
-            "laboratory": "ORNL",
-            "probe": "neutrons",
-            "technique": "reflectivity",
-            "technique_description": None,
-            "is_simulated": False,
-            "run_title": "Test Run",
-            "run_number": "218386",
-            "run_start": datetime.now(timezone.utc),
-            "raw_file_path": None,
-            "instrument_name": "REF_L",
-            "sample_id": None,
-            "reflectivity": {
-                "measurement_geometry": None,
-                "reduction_time": None,
-                "reduction_version": None,
-                "reduction_parameters": None,
-                "q": [0.01, 0.02, 0.03],
-                "r": [1.0, 0.8, 0.5],
-                "dr": [-0.01, 0.01, 0.02],  # Negative!
-                "dq": [0.001, 0.001, 0.002],
-            },
-        }
-        
-        assembly = AssemblyResult(reflectivity=refl_record)
-        result = validator.validate(assembly)
-        
-        warnings = [i for i in result.issues if i.severity in ("warning", "error")]
-        assert len(warnings) > 0
-
-    def test_validate_sample(self):
-        """Test validation of sample record."""
-        validator = DataValidator()
-        
-        sample_record = {
-            "id": None,
-            "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            "description": "Test sample",
-            "main_composition": "Au",
-            "geometry": None,
-            "environment_ids": [],
-            "layers_json": None,
-            "layers": [
-                {
-                    "layer_number": 1,
-                    "material": "Au",
-                    "thickness": 100.0,
-                    "roughness": 5.0,
-                    "sld": 4.5,
-                }
-            ],
-            "substrate_json": None,
-        }
-        
-        assembly = AssemblyResult(sample=sample_record)
-        result = validator.validate(assembly)
-        # Should pass or only have minor warnings
-        critical_errors = [i for i in result.issues if i.severity == "error"]
-        assert len(critical_errors) == 0
 
 
 class TestParquetWriter:
@@ -575,10 +419,8 @@ class TestIntegration:
                 model=model_data,
             )
             
-            # 2. Validate
-            validator = DataValidator()
-            validation = validator.validate(result)
-            assert validation.is_valid, f"Validation failed: {validation.issues}"
+            # 2. Check assembly succeeded
+            assert not result.has_errors, f"Assembly failed: {result.errors}"
             
             # 3. Write to Parquet
             paths = write_assembly_to_parquet(result, tmpdir)

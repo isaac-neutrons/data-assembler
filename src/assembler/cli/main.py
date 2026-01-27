@@ -5,7 +5,6 @@ Usage:
     data-assembler ingest --reduced FILE [--parquet DIR] [--model FILE] --output DIR
     data-assembler detect FILE
     data-assembler find --run NUMBER [--search-path DIR]...
-    data-assembler validate --reduced FILE [--parquet DIR]
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import click
 
 from assembler.parsers import ModelParser, ParquetParser, ReducedParser
 from assembler.tools import FileFinder, detect_file, extract_run_number
-from assembler.validation import DataValidator
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers import write_assembly_to_json, write_assembly_to_parquet
 
@@ -193,134 +191,6 @@ def find(
     "-r",
     required=True,
     type=click.Path(exists=True),
-    help="Path to reduced reflectivity data file",
-)
-@click.option(
-    "--parquet",
-    "-p",
-    type=click.Path(exists=True),
-    help="Directory containing parquet files",
-)
-@click.option(
-    "--model",
-    "-m",
-    type=click.Path(exists=True),
-    help="Path to model JSON file",
-)
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-@pass_config
-def validate(
-    config: Config,
-    reduced: str,
-    parquet: Optional[str],
-    model: Optional[str],
-    as_json: bool,
-) -> None:
-    """Validate assembled data without writing.
-
-    Parses input files, assembles them, and runs validation checks.
-    Reports any errors or warnings found.
-
-    Example:
-        data-assembler validate --reduced REF_L_218386.txt --parquet ./parquet/
-    """
-    logger = logging.getLogger("validate")
-
-    # Parse input files
-    logger.info(f"Parsing reduced file: {reduced}")
-    reduced_parser = ReducedParser()
-    try:
-        reduced_data = reduced_parser.parse(reduced)
-    except Exception as e:
-        raise click.ClickException(f"Error parsing reduced file: {e}")
-
-    parquet_data = None
-    if parquet:
-        logger.info(f"Parsing parquet directory: {parquet}")
-        parquet_parser = ParquetParser()
-        try:
-            run_number = extract_run_number(reduced)
-            parquet_data = parquet_parser.parse_directory(parquet, run_number=run_number)
-        except Exception as e:
-            raise click.ClickException(f"Error parsing parquet files: {e}")
-
-    model_data = None
-    if model:
-        logger.info(f"Parsing model file: {model}")
-        model_parser = ModelParser()
-        try:
-            model_data = model_parser.parse(model)
-        except Exception as e:
-            raise click.ClickException(f"Error parsing model file: {e}")
-
-    # Assemble
-    logger.info("Assembling data...")
-    assembler = DataAssembler()
-    result = assembler.assemble(reduced=reduced_data, parquet=parquet_data, model=model_data)
-
-    # Validate
-    logger.info("Validating...")
-    validator = DataValidator()
-    validation = validator.validate(result)
-
-    if as_json:
-        output = {
-            "is_valid": validation.is_valid,
-            "errors": [
-                {"field": i.field, "message": i.message, "severity": i.severity}
-                for i in validation.errors
-            ],
-            "warnings": [
-                {"field": i.field, "message": i.message, "severity": i.severity}
-                for i in validation.warnings
-            ],
-            "assembly": {
-                "has_reflectivity": result.reflectivity is not None,
-                "has_sample": result.sample is not None,
-                "has_environment": result.environment is not None,
-                "assembly_errors": result.errors,
-                "assembly_warnings": result.warnings,
-                "needs_review": result.needs_review,
-            },
-        }
-        click.echo(json.dumps(output, indent=2))
-    else:
-        status = (
-            click.style("PASSED", fg="green")
-            if validation.is_valid
-            else click.style("FAILED", fg="red")
-        )
-        click.echo(f"Validation: {status}")
-        click.echo()
-
-        if validation.errors:
-            click.echo(click.style("Errors:", fg="red"))
-            for issue in validation.errors:
-                click.echo(f"  ✗ {issue.field}: {issue.message}")
-
-        if validation.warnings:
-            click.echo(click.style("Warnings:", fg="yellow"))
-            for issue in validation.warnings:
-                click.echo(f"  ⚠ {issue.field}: {issue.message}")
-
-        if result.needs_review:
-            click.echo(click.style("\nNeeds Review:", fg="cyan"))
-            for field, reason in result.needs_review.items():
-                click.echo(f"  ? {field}: {reason}")
-
-        click.echo()
-        _print_assembly_summary(result)
-
-    if not validation.is_valid:
-        sys.exit(1)
-
-
-@cli.command()
-@click.option(
-    "--reduced",
-    "-r",
-    required=True,
-    type=click.Path(exists=True),
     help="Path to reduced reflectivity data file (.txt)",
 )
 @click.option(
@@ -342,8 +212,7 @@ def validate(
     type=click.Path(),
     help="Output directory for parquet files",
 )
-@click.option("--skip-validation", is_flag=True, help="Skip validation step")
-@click.option("--dry-run", is_flag=True, help="Parse and validate but don't write output")
+@click.option("--dry-run", is_flag=True, help="Parse and assemble but don't write output")
 @click.option("--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)")
 @click.option("--debug", "debug_output", is_flag=True, help="Write debug JSON with full schema and missing field indicators")
 @pass_config
@@ -353,7 +222,6 @@ def ingest(
     parquet: Optional[str],
     model: Optional[str],
     output: str,
-    skip_validation: bool,
     dry_run: bool,
     as_json: bool,
     debug_output: bool,
@@ -406,24 +274,13 @@ def ingest(
             click.echo(f"  - {error}", err=True)
         sys.exit(1)
 
-    # Validate
-    if not skip_validation:
-        logger.info("Validating assembly...")
-        validator = DataValidator()
-        validation = validator.validate(result)
-
-        if not validation.is_valid:
-            click.echo(click.style("Validation failed:", fg="red"), err=True)
-            for issue in validation.issues:
-                click.echo(f"  [{issue.severity}] {issue.field}: {issue.message}", err=True)
-            sys.exit(1)
-
-        if validation.warnings:
-            for issue in validation.warnings:
-                click.echo(
-                    click.style(f"Warning: {issue.field}: {issue.message}", fg="yellow"),
-                    err=True,
-                )
+    # Report assembly warnings
+    if result.warnings:
+        for warning in result.warnings:
+            click.echo(
+                click.style(f"Warning: {warning}", fg="yellow"),
+                err=True,
+            )
 
     # Report assembly result
     _print_assembly_summary(result)
