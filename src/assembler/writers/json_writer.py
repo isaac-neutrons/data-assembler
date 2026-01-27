@@ -58,10 +58,10 @@ class JSONWriter:
             Path to the written JSON file
         """
         output_path = self.output_dir / "reflectivity.json"
-        
+
         with open(output_path, "w") as f:
             json.dump(record, f, cls=JSONEncoder, indent=2)
-        
+
         return output_path
 
     def write_sample(self, record: dict[str, Any]) -> Path:
@@ -75,10 +75,10 @@ class JSONWriter:
             Path to the written JSON file
         """
         output_path = self.output_dir / "sample.json"
-        
+
         with open(output_path, "w") as f:
             json.dump(record, f, cls=JSONEncoder, indent=2)
-        
+
         return output_path
 
     def write_environment(self, record: dict[str, Any]) -> Path:
@@ -92,10 +92,10 @@ class JSONWriter:
             Path to the written JSON file
         """
         output_path = self.output_dir / "environment.json"
-        
+
         with open(output_path, "w") as f:
             json.dump(record, f, cls=JSONEncoder, indent=2)
-        
+
         return output_path
 
     def write_all(self, result: AssemblyResult) -> dict[str, Path]:

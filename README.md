@@ -12,7 +12,7 @@ This package provides tools to ingest neutron reflectometry data from multiple s
 | **Raw metadata** | Parquet (from nexus-processor) | DAS logs, sample info, instrument config |
 | **Model data** | JSON (refl1d/bumps) | Layer structure, materials, fit parameters |
 
-The workflow links these sources together, validates the data, and outputs Parquet files partitioned for Iceberg ingestion.
+The workflow links these sources together and outputs Parquet files partitioned for Iceberg ingestion.
 
 ## Installation
 
@@ -54,8 +54,7 @@ Options:
   -p, --parquet PATH   Directory containing parquet files from nexus-processor
   -m, --model PATH     Path to refl1d/bumps model JSON file
   -o, --output PATH    Output directory for parquet files [required]
-  --skip-validation    Skip validation step
-  --dry-run            Parse and validate but don't write output
+  --dry-run            Parse and assemble but don't write output
   --json               Also write JSON files (in addition to Parquet)
   --debug              Write debug JSON with full schema and missing fields
 ```
@@ -71,12 +70,6 @@ data-assembler detect /path/to/file --json
 
 ```bash
 data-assembler find --run 218386 --search-path ~/data/
-```
-
-### `validate` - Validate without writing
-
-```bash
-data-assembler validate -r reduced.txt -p parquet_dir/
 ```
 
 ## Python API
@@ -95,8 +88,8 @@ model = ModelParser().parse("model.json")
 assembler = DataAssembler()
 result = assembler.assemble(reduced=reduced, parquet=parquet, model=model)
 
-# Access assembled data
-print(result.reflectivity)  # Measurement with Q/R/dR/dQ
+# Access assembled data (dict records matching PyArrow schemas)
+print(result.reflectivity)  # Measurement with Q/R/dR/dQ in nested struct
 print(result.sample)        # Layer structure from model
 print(result.environment)   # Conditions from DAS logs
 
@@ -120,22 +113,25 @@ meta = REF_L.extract_metadata(parquet_data)
 
 ## Output Schema
 
+Output records are dictionaries that match PyArrow schemas defined in `writers/schemas.py`.
+
 ### Reflectivity Table
-- `proposal_number`, `facility`, `instrument_name`
+- `proposal_number`, `facility`, `laboratory`, `instrument_name`
 - `run_number`, `run_title`, `run_start`
-- `q`, `r`, `dr`, `dq` (arrays)
-- `reduction_time`, `reduction_version`
+- `probe`, `technique`, `is_simulated`
+- `reflectivity` (nested struct):
+  - `q`, `r`, `dr`, `dq` (arrays)
+  - `measurement_geometry`, `reduction_time`, `reduction_version`
 
 ### Sample Table  
-- `description`, `main_composition`
-- `layers[]` with thickness, roughness, material (SLD, composition)
-- `substrate` layer
+- `description`, `main_composition`, `geometry`
+- `layers[]` with layer_number, material, thickness, roughness, sld
+- `substrate_json`
 
 ### Environment Table
-- `temperature`, `temperature_min`, `temperature_max`
-- `pressure`, `relative_humidity`
-- `ambient_medium`
-- `source_daslogs` (provenance)
+- `description`, `ambient_medium`
+- `temperature`, `pressure`, `relative_humidity`
+- `measurement_ids`
 
 ## Debug Output
 
@@ -148,12 +144,27 @@ Use `--debug` to generate `debug_schema.json` with:
 ```json
 {
   "field_coverage": {
-    "reflectivity": {"coverage_pct": 79.2, "missing_field_names": ["lab", "sample_id"]},
+    "reflectivity": {"coverage_pct": 79.2, "missing_field_names": ["sample_id"]},
     "sample": {"coverage_pct": 70.6, "missing_field_names": ["geometry"]},
-    "environment": {"coverage_pct": 38.5, "missing_field_names": ["temperature"]}
+    "environment": {"coverage_pct": 38.5, "missing_field_names": ["pressure"]}
   }
 }
 ```
+
+## Architecture
+
+The assembler uses a simple data flow:
+
+```
+Parsers → Record Builders → Writers
+            ↓
+     Dict records matching
+      PyArrow schemas
+```
+
+- **Parsers** read input files into intermediate data structures
+- **Record Builders** convert parsed data directly to schema-ready dicts
+- **Writers** output dicts to Parquet/JSON files
 
 ## Project Structure
 
@@ -162,12 +173,10 @@ data-assembler/
 ├── src/assembler/
 │   ├── cli/           # Click-based CLI
 │   ├── instruments/   # Instrument-specific handlers (REF_L, etc.)
-│   ├── models/        # Pydantic models (Reflectivity, Sample, Environment)
 │   ├── parsers/       # File parsers (reduced, parquet, model)
 │   ├── tools/         # File detection, finding utilities
-│   ├── validation.py  # Data validation
-│   ├── workflow/      # Assembly orchestration
-│   └── writers/       # Parquet/JSON output
+│   ├── workflow/      # Assembly orchestration and record builders
+│   └── writers/       # Parquet/JSON output and schemas
 ├── tests/
 └── docs/
 ```

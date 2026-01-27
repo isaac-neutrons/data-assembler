@@ -213,8 +213,15 @@ def find(
     help="Output directory for parquet files",
 )
 @click.option("--dry-run", is_flag=True, help="Parse and assemble but don't write output")
-@click.option("--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)")
-@click.option("--debug", "debug_output", is_flag=True, help="Write debug JSON with full schema and missing field indicators")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)"
+)
+@click.option(
+    "--debug",
+    "debug_output",
+    is_flag=True,
+    help="Write debug JSON with full schema and missing field indicators",
+)
 @pass_config
 def ingest(
     config: Config,
@@ -293,7 +300,9 @@ def ingest(
         if debug_output:
             output_path = Path(output)
             output_path.mkdir(parents=True, exist_ok=True)
-            debug_path = _write_debug_json(result, reduced_data, parquet_data, model_data, output_path)
+            debug_path = _write_debug_json(
+                result, reduced_data, parquet_data, model_data, output_path
+            )
             click.echo(click.style(f"\nDebug output: {debug_path}", fg="cyan"))
         return
 
@@ -314,7 +323,9 @@ def ingest(
 
         # Write debug JSON if requested
         if debug_output:
-            debug_path = _write_debug_json(result, reduced_data, parquet_data, model_data, output_path)
+            debug_path = _write_debug_json(
+                result, reduced_data, parquet_data, model_data, output_path
+            )
             paths["debug"] = str(debug_path)
 
         click.echo(click.style("\nOutput files:", fg="green"))
@@ -333,12 +344,12 @@ def _write_debug_json(
 ) -> Path:
     """
     Write comprehensive debug JSON showing full schema with missing field indicators.
-    
+
     This helps identify what data is available, what's missing, and where it comes from.
     """
     from datetime import datetime, timezone
     from enum import Enum
-    
+
     def serialize_value(v, field_name: str = ""):
         """Serialize a value, marking missing fields clearly."""
         if v is None:
@@ -369,21 +380,21 @@ def _write_debug_json(
         """Convert a Pydantic model to debug dict with field status."""
         if model is None:
             return {"_status": "MISSING", "_note": "Model not created"}
-        
+
         result = {}
         # Get all fields from the model class (not instance)
         for field_name, field_info in model.__class__.model_fields.items():
             value = getattr(model, field_name, None)
             serialized = serialize_value(value, field_name)
-            
+
             # Add field metadata
             if isinstance(serialized, dict) and "_status" in serialized:
                 serialized["_field_description"] = field_info.description or ""
                 if field_info.is_required():
                     serialized["_required"] = True
-            
+
             result[field_name] = serialized
-        
+
         return result
 
     def _source_summary(reduced, parquet, model) -> dict:
@@ -409,18 +420,27 @@ def _write_debug_json(
                 "total_thickness": model.total_thickness if model else None,
             },
         }
-        
+
         # Analyze reduced data fields
         if reduced:
-            for attr in ["experiment_id", "run_number", "run_title", "run_start_time", 
-                        "reduction_time", "reduction_version", "q_summing", "tof_weighted",
-                        "bck_in_q", "theta_offset"]:
+            for attr in [
+                "experiment_id",
+                "run_number",
+                "run_title",
+                "run_start_time",
+                "reduction_time",
+                "reduction_version",
+                "q_summing",
+                "tof_weighted",
+                "bck_in_q",
+                "theta_offset",
+            ]:
                 val = getattr(reduced, attr, None)
                 if val is not None:
                     summary["reduced"]["fields_with_data"].append(attr)
                 else:
                     summary["reduced"]["fields_missing"].append(attr)
-        
+
         return summary
 
     # Build debug output
@@ -436,15 +456,21 @@ def _write_debug_json(
         },
         "data_sources": _source_summary(reduced_data, parquet_data, model_data),
         "assembled_data": {
-            "reflectivity": _model_to_debug_dict(result.reflectivity) if result.reflectivity else {
+            "reflectivity": _model_to_debug_dict(result.reflectivity)
+            if result.reflectivity
+            else {
                 "_status": "NOT_ASSEMBLED",
                 "_note": "Reflectivity model was not created",
             },
-            "sample": _model_to_debug_dict(result.sample) if result.sample else {
-                "_status": "NOT_ASSEMBLED", 
+            "sample": _model_to_debug_dict(result.sample)
+            if result.sample
+            else {
+                "_status": "NOT_ASSEMBLED",
                 "_note": "Sample model was not created (requires --model file)",
             },
-            "environment": _model_to_debug_dict(result.environment) if result.environment else {
+            "environment": _model_to_debug_dict(result.environment)
+            if result.environment
+            else {
                 "_status": "NOT_ASSEMBLED",
                 "_note": "Environment model was not created",
             },
@@ -452,14 +478,14 @@ def _write_debug_json(
         "assembly_errors": result.errors if result.errors else [],
         "assembly_warnings": result.warnings if result.warnings else [],
     }
-    
+
     # Add field coverage summary
     def count_fields(data: dict, prefix: str = "") -> tuple[int, int, list]:
         """Count populated vs missing fields."""
         populated = 0
         missing = 0
         missing_fields = []
-        
+
         for key, value in data.items():
             if key.startswith("_"):
                 continue
@@ -479,7 +505,7 @@ def _write_debug_json(
             else:
                 populated += 1
         return populated, missing, missing_fields
-    
+
     coverage = {}
     for section in ["reflectivity", "sample", "environment"]:
         data = debug_output["assembled_data"].get(section, {})
@@ -493,14 +519,14 @@ def _write_debug_json(
             }
         else:
             coverage[section] = {"status": "not_assembled"}
-    
+
     debug_output["field_coverage"] = coverage
-    
+
     # Write to file
     debug_path = output_path / "debug_schema.json"
     with open(debug_path, "w") as f:
         json.dump(debug_output, f, indent=2, default=str)
-    
+
     return debug_path
 
 

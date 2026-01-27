@@ -102,7 +102,11 @@ class ParquetWriter:
             Dict mapping table names to paths (for AssemblyResult)
         """
         # Check if it's an AssemblyResult
-        if hasattr(data, "reflectivity") and hasattr(data, "sample") and hasattr(data, "environment"):
+        if (
+            hasattr(data, "reflectivity")
+            and hasattr(data, "sample")
+            and hasattr(data, "environment")
+        ):
             return self._write_assembly_result(data, **partition_kwargs)
 
         # It's a dict record - need table_type

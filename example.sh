@@ -17,6 +17,13 @@ data-assembler ingest \
     -o /tmp/lakehouse \
     --json
 
+# With debug output to see schema coverage
+data-assembler ingest \
+    -r ~/data/REFL_218386_combined_data_auto.txt \
+    -p ~/data/isaac/expt11/parquet/ \
+    -o /tmp/lakehouse \
+    --debug
+
 # Detect file type
 data-assembler detect ~/data/REFL_218386_combined_data_auto.txt
 
@@ -24,8 +31,3 @@ data-assembler detect ~/data/REFL_218386_combined_data_auto.txt
 data-assembler find --run 218386 \
     -s ~/data \
     -s ~/data/isaac/expt11/parquet
-
-# Validate without writing
-data-assembler validate \
-    -r ~/data/REFL_218386_combined_data_auto.txt \
-    -p ~/data/isaac/expt11/parquet/
