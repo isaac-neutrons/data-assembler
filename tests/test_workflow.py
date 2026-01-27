@@ -11,10 +11,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from assembler.models import Environment, Reflectivity, Sample
-from assembler.models.layer import Layer
-from assembler.models.material import Material
-from assembler.models.measurement import Facility, Probe, Technique
 from assembler.parsers import ModelData, ParquetData, ReducedData, MetadataRecord, ModelLayer, ModelMaterial
 from assembler.tools import (
     FileInfo,
@@ -112,9 +108,9 @@ class TestDataAssembler:
         
         assert isinstance(result, AssemblyResult)
         assert result.reflectivity is not None
-        assert result.reflectivity.run_number == "218386"
-        assert result.reflectivity.q == [0.01, 0.02, 0.03]
-        assert result.reflectivity.r == [1.0, 0.8, 0.5]
+        assert result.reflectivity["run_number"] == "218386"
+        assert result.reflectivity["reflectivity"]["q"] == [0.01, 0.02, 0.03]
+        assert result.reflectivity["reflectivity"]["r"] == [1.0, 0.8, 0.5]
 
     def test_assemble_creates_sample_from_model(self):
         """Test that assembler creates Sample from model data."""
@@ -198,30 +194,46 @@ class TestDataAssembler:
         result = assembler.assemble(reduced=reduced_data, parquet=parquet_data)
         
         assert result.environment is not None
-        assert result.environment.temperature == 298.0
+        assert result.environment["temperature"] == 298.0
 
 
 class TestValidation:
     """Tests for the validation layer."""
 
     def test_validate_assembly_passes(self):
-        """Test validation of valid assembly with Reflectivity data."""
+        """Test validation of valid assembly with reflectivity record."""
         validator = DataValidator()
         
-        refl = Reflectivity(
-            q=[0.01, 0.02, 0.03],
-            r=[1.0, 0.8, 0.5],
-            dr=[0.01, 0.01, 0.02],
-            dq=[0.001, 0.001, 0.002],
-            run_number="218386",
-            run_title="Test Run",
-            proposal_number="IPTS-12345",
-            facility=Facility.SNS,
-            probe=Probe.NEUTRONS,
-            technique=Technique.REFLECTIVITY,
-        )
+        refl_record = {
+            "id": None,
+            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "proposal_number": "IPTS-12345",
+            "facility": "SNS",
+            "laboratory": "ORNL",
+            "probe": "neutrons",
+            "technique": "reflectivity",
+            "technique_description": None,
+            "is_simulated": False,
+            "run_title": "Test Run",
+            "run_number": "218386",
+            "run_start": datetime.now(timezone.utc),
+            "raw_file_path": None,
+            "instrument_name": "REF_L",
+            "sample_id": None,
+            "reflectivity": {
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "reduction_parameters": None,
+                "q": [0.01, 0.02, 0.03],
+                "r": [1.0, 0.8, 0.5],
+                "dr": [0.01, 0.01, 0.02],
+                "dq": [0.001, 0.001, 0.002],
+            },
+        }
         
-        assembly = AssemblyResult(reflectivity=refl)
+        assembly = AssemblyResult(reflectivity=refl_record)
         result = validator.validate(assembly)
         
         assert isinstance(result, ValidationResult)
@@ -233,20 +245,36 @@ class TestValidation:
         """Test validation catches array length mismatches."""
         validator = DataValidator()
         
-        refl = Reflectivity(
-            q=[0.01, 0.02, 0.03],
-            r=[1.0, 0.8],  # Wrong length!
-            dr=[0.01, 0.01, 0.02],
-            dq=[0.001, 0.001, 0.002],
-            run_number="218386",
-            run_title="Test Run",
-            proposal_number="IPTS-12345",
-            facility=Facility.SNS,
-            probe=Probe.NEUTRONS,
-            technique=Technique.REFLECTIVITY,
-        )
+        refl_record = {
+            "id": None,
+            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "proposal_number": "IPTS-12345",
+            "facility": "SNS",
+            "laboratory": "ORNL",
+            "probe": "neutrons",
+            "technique": "reflectivity",
+            "technique_description": None,
+            "is_simulated": False,
+            "run_title": "Test Run",
+            "run_number": "218386",
+            "run_start": datetime.now(timezone.utc),
+            "raw_file_path": None,
+            "instrument_name": "REF_L",
+            "sample_id": None,
+            "reflectivity": {
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "reduction_parameters": None,
+                "q": [0.01, 0.02, 0.03],
+                "r": [1.0, 0.8],  # Wrong length!
+                "dr": [0.01, 0.01, 0.02],
+                "dq": [0.001, 0.001, 0.002],
+            },
+        }
         
-        assembly = AssemblyResult(reflectivity=refl)
+        assembly = AssemblyResult(reflectivity=refl_record)
         result = validator.validate(assembly)
         
         errors = [i for i in result.issues if i.severity == "error"]
@@ -257,42 +285,67 @@ class TestValidation:
         """Test validation catches negative uncertainties."""
         validator = DataValidator()
         
-        refl = Reflectivity(
-            q=[0.01, 0.02, 0.03],
-            r=[1.0, 0.8, 0.5],
-            dr=[-0.01, 0.01, 0.02],  # Negative!
-            dq=[0.001, 0.001, 0.002],
-            run_number="218386",
-            run_title="Test Run",
-            proposal_number="IPTS-12345",
-            facility=Facility.SNS,
-            probe=Probe.NEUTRONS,
-            technique=Technique.REFLECTIVITY,
-        )
+        refl_record = {
+            "id": None,
+            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "proposal_number": "IPTS-12345",
+            "facility": "SNS",
+            "laboratory": "ORNL",
+            "probe": "neutrons",
+            "technique": "reflectivity",
+            "technique_description": None,
+            "is_simulated": False,
+            "run_title": "Test Run",
+            "run_number": "218386",
+            "run_start": datetime.now(timezone.utc),
+            "raw_file_path": None,
+            "instrument_name": "REF_L",
+            "sample_id": None,
+            "reflectivity": {
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "reduction_parameters": None,
+                "q": [0.01, 0.02, 0.03],
+                "r": [1.0, 0.8, 0.5],
+                "dr": [-0.01, 0.01, 0.02],  # Negative!
+                "dq": [0.001, 0.001, 0.002],
+            },
+        }
         
-        assembly = AssemblyResult(reflectivity=refl)
+        assembly = AssemblyResult(reflectivity=refl_record)
         result = validator.validate(assembly)
         
         warnings = [i for i in result.issues if i.severity in ("warning", "error")]
         assert len(warnings) > 0
 
     def test_validate_sample(self):
-        """Test validation of Sample model."""
+        """Test validation of sample record."""
         validator = DataValidator()
         
-        sample = Sample(
-            description="Test sample",
-            layers=[
-                Layer(
-                    name="Gold",
-                    thickness=100.0,
-                    roughness=5.0,
-                    material=Material(composition="Au"),
-                )
+        sample_record = {
+            "id": None,
+            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "description": "Test sample",
+            "main_composition": "Au",
+            "geometry": None,
+            "environment_ids": [],
+            "layers_json": None,
+            "layers": [
+                {
+                    "layer_number": 1,
+                    "material": "Au",
+                    "thickness": 100.0,
+                    "roughness": 5.0,
+                    "sld": 4.5,
+                }
             ],
-        )
+            "substrate_json": None,
+        }
         
-        assembly = AssemblyResult(sample=sample)
+        assembly = AssemblyResult(sample=sample_record)
         result = validator.validate(assembly)
         # Should pass or only have minor warnings
         critical_errors = [i for i in result.issues if i.severity == "error"]
@@ -303,25 +356,40 @@ class TestParquetWriter:
     """Tests for Parquet output writing."""
 
     def test_write_reflectivity(self):
-        """Test writing Reflectivity to Parquet."""
+        """Test writing reflectivity record to Parquet."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = ParquetWriter(tmpdir)
             
-            refl = Reflectivity(
-                q=[0.01, 0.02, 0.03],
-                r=[1.0, 0.8, 0.5],
-                dr=[0.01, 0.01, 0.02],
-                dq=[0.001, 0.001, 0.002],
-                run_number="218386",
-                run_title="Test Run",
-                proposal_number="IPTS-12345",
-                facility=Facility.SNS,
-                probe=Probe.NEUTRONS,
-                technique=Technique.REFLECTIVITY,
-                run_start=datetime(2024, 1, 15, tzinfo=timezone.utc),
-            )
+            refl_record = {
+                "id": None,
+                "created_at": datetime.now(timezone.utc),
+                "is_deleted": False,
+                "proposal_number": "IPTS-12345",
+                "facility": "SNS",
+                "laboratory": "ORNL",
+                "probe": "neutrons",
+                "technique": "reflectivity",
+                "technique_description": None,
+                "is_simulated": False,
+                "run_title": "Test Run",
+                "run_number": "218386",
+                "run_start": datetime(2024, 1, 15, tzinfo=timezone.utc),
+                "raw_file_path": None,
+                "instrument_name": "REF_L",
+                "sample_id": None,
+                "reflectivity": {
+                    "measurement_geometry": None,
+                    "reduction_time": None,
+                    "reduction_version": None,
+                    "reduction_parameters": None,
+                    "q": [0.01, 0.02, 0.03],
+                    "r": [1.0, 0.8, 0.5],
+                    "dr": [0.01, 0.01, 0.02],
+                    "dq": [0.001, 0.001, 0.002],
+                },
+            }
             
-            path = writer.write_reflectivity(refl)
+            path = writer.write_reflectivity(refl_record)
             
             assert path.exists()
             assert path.suffix == ".parquet"
@@ -329,8 +397,8 @@ class TestParquetWriter:
             # Read single file using ParquetFile to avoid dataset discovery
             pf = pq.ParquetFile(str(path))
             table = pf.read()
-            assert "q" in table.column_names
-            assert "r" in table.column_names
+            # Reflectivity data is now in nested 'reflectivity' struct
+            assert "reflectivity" in table.column_names
             assert table.num_rows == 1
 
     def test_write_assembly(self):
@@ -338,21 +406,64 @@ class TestParquetWriter:
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = ParquetWriter(tmpdir)
             
+            refl_record = {
+                "id": None,
+                "created_at": datetime.now(timezone.utc),
+                "is_deleted": False,
+                "proposal_number": "IPTS-12345",
+                "facility": "SNS",
+                "laboratory": "ORNL",
+                "probe": "neutrons",
+                "technique": "reflectivity",
+                "technique_description": None,
+                "is_simulated": False,
+                "run_title": "Test Run",
+                "run_number": "218386",
+                "run_start": datetime.now(timezone.utc),
+                "raw_file_path": None,
+                "instrument_name": "REF_L",
+                "sample_id": None,
+                "reflectivity": {
+                    "measurement_geometry": None,
+                    "reduction_time": None,
+                    "reduction_version": None,
+                    "reduction_parameters": None,
+                    "q": [0.01, 0.02],
+                    "r": [1.0, 0.8],
+                    "dr": [0.01, 0.01],
+                    "dq": [0.001, 0.001],
+                },
+            }
+            
+            sample_record = {
+                "id": None,
+                "created_at": datetime.now(timezone.utc),
+                "is_deleted": False,
+                "description": "Test",
+                "main_composition": None,
+                "geometry": None,
+                "environment_ids": [],
+                "layers_json": None,
+                "layers": [],
+                "substrate_json": None,
+            }
+            
+            env_record = {
+                "id": None,
+                "created_at": datetime.now(timezone.utc),
+                "is_deleted": False,
+                "description": "Test environment",
+                "ambient_medium": None,
+                "temperature": 298.0,
+                "pressure": None,
+                "relative_humidity": None,
+                "measurement_ids": [],
+            }
+            
             assembly = AssemblyResult(
-                reflectivity=Reflectivity(
-                    q=[0.01, 0.02],
-                    r=[1.0, 0.8],
-                    dr=[0.01, 0.01],
-                    dq=[0.001, 0.001],
-                    run_number="218386",
-                    run_title="Test Run",
-                    proposal_number="IPTS-12345",
-                    facility=Facility.SNS,
-                    probe=Probe.NEUTRONS,
-                    technique=Technique.REFLECTIVITY,
-                ),
-                sample=Sample(description="Test"),
-                environment=Environment(description="Test environment", temperature=298.0),
+                reflectivity=refl_record,
+                sample=sample_record,
+                environment=env_record,
             )
             
             paths = writer.write(assembly)
@@ -374,21 +485,36 @@ class TestParquetWriter:
                 partition_by_year=True,
             )
             
-            refl = Reflectivity(
-                q=[0.01],
-                r=[1.0],
-                dr=[0.01],
-                dq=[0.001],
-                run_number="218386",
-                run_title="Test Run",
-                proposal_number="IPTS-12345",
-                facility=Facility.SNS,
-                probe=Probe.NEUTRONS,
-                technique=Technique.REFLECTIVITY,
-                run_start=datetime(2024, 1, 15, tzinfo=timezone.utc),
-            )
+            refl_record = {
+                "id": None,
+                "created_at": datetime.now(timezone.utc),
+                "is_deleted": False,
+                "proposal_number": "IPTS-12345",
+                "facility": "SNS",
+                "laboratory": "ORNL",
+                "probe": "neutrons",
+                "technique": "reflectivity",
+                "technique_description": None,
+                "is_simulated": False,
+                "run_title": "Test Run",
+                "run_number": "218386",
+                "run_start": datetime(2024, 1, 15, tzinfo=timezone.utc),
+                "raw_file_path": None,
+                "instrument_name": "REF_L",
+                "sample_id": None,
+                "reflectivity": {
+                    "measurement_geometry": None,
+                    "reduction_time": None,
+                    "reduction_version": None,
+                    "reduction_parameters": None,
+                    "q": [0.01],
+                    "r": [1.0],
+                    "dr": [0.01],
+                    "dq": [0.001],
+                },
+            }
             
-            path = writer.write_reflectivity(refl)
+            path = writer.write_reflectivity(refl_record)
             
             # Check path contains partition directories
             path_str = str(path)

@@ -5,6 +5,7 @@ Tests for the assembler models.
 import pytest
 from datetime import datetime
 
+from assembler.enums import Facility, Probe, Technique
 from assembler.models import (
     Material,
     Layer,
@@ -12,9 +13,6 @@ from assembler.models import (
     Measurement,
     Reflectivity,
     Environment,
-    Facility,
-    Probe,
-    Technique,
 )
 
 

@@ -17,11 +17,11 @@ REFLECTIVITY_SCHEMA = pa.schema(
         # Measurement fields
         ("proposal_number", pa.string()),
         ("facility", pa.string()),
-        ("lab", pa.string()),
+        ("laboratory", pa.string()),
         ("probe", pa.string()),
         ("technique", pa.string()),
         ("technique_description", pa.string()),
-        ("is_simulated", pa.bool_()),
+        pa.field("is_simulated", pa.bool_(), metadata={b'description': b'Indicates if the measurement is simulated data'}),
         ("run_title", pa.string()),
         ("run_number", pa.string()),
         ("run_start", pa.timestamp("us", tz="UTC")),
@@ -29,15 +29,22 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("instrument_name", pa.string()),
         ("sample_id", pa.string()),
         # Reflectivity-specific fields
-        ("q", pa.list_(pa.float64())),
-        ("r", pa.list_(pa.float64())),
-        ("dr", pa.list_(pa.float64())),
-        ("dq", pa.list_(pa.float64())),
-        ("measurement_geometry", pa.float64()),
-        ("reduction_time", pa.timestamp("us", tz="UTC")),
-        ("reduction_version", pa.string()),
-        ("reduction_parameters", pa.string()),  # JSON string
-    ]
+        (
+            "reflectivity",
+            pa.struct(
+                [
+                    ("measurement_geometry", pa.float64()),
+                    ("reduction_time", pa.timestamp("us", tz="UTC")),
+                    ("reduction_version", pa.string()),
+                    ("reduction_parameters", pa.string()),  # JSON string
+                    ("q", pa.list_(pa.float64())),
+                    ("r", pa.list_(pa.float64())),
+                    ("dr", pa.list_(pa.float64())),
+                    ("dq", pa.list_(pa.float64())),
+                ]
+            ),
+        ),
+    ],
 )
 
 # Schema for Sample records
@@ -54,6 +61,20 @@ SAMPLE_SCHEMA = pa.schema(
         ("environment_ids", pa.list_(pa.string())),
         # Layers as JSON string (nested struct alternative)
         ("layers_json", pa.string()),
+        (
+            "layers",
+            pa.list_(
+                pa.struct(
+                    [
+                        ("layer_number", pa.int32()),
+                        ("material", pa.string()),
+                        ("thickness", pa.float64()),
+                        ("roughness", pa.float64()),
+                        ("sld", pa.float64()),
+                    ]
+                )
+            ),
+        ),
         ("substrate_json", pa.string()),
     ]
 )
@@ -72,10 +93,6 @@ ENVIRONMENT_SCHEMA = pa.schema(
         ("pressure", pa.float64()),
         ("relative_humidity", pa.float64()),
         ("measurement_ids", pa.list_(pa.string())),
-        ("temperature_min", pa.float64()),
-        ("temperature_max", pa.float64()),
-        ("magnetic_field", pa.float64()),
-        ("source_daslogs", pa.string()),  # JSON string
     ]
 )
 

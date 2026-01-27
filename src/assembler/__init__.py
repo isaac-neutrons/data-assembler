@@ -12,14 +12,6 @@ from assembler.compat import (
     is_raven_ai_available,
     validate_against_raven,
 )
-from assembler.models import (
-    Environment,
-    Layer,
-    Material,
-    Measurement,
-    Reflectivity,
-    Sample,
-)
 from assembler.tools import (
     FileFinder,
     FileInfo,
@@ -34,13 +26,6 @@ from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers import ParquetWriter, write_assembly_to_parquet
 
 __all__ = [
-    # Models
-    "Material",
-    "Layer",
-    "Sample",
-    "Measurement",
-    "Reflectivity",
-    "Environment",
     # Compatibility utilities
     "is_raven_ai_available",
     "validate_against_raven",

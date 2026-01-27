@@ -1,9 +1,8 @@
 """
 JSON writer for outputting assembled data in AI-ready JSON format.
 
-This module provides functionality to write assembled Reflectivity, Sample,
-and Environment records to JSON files, maintaining schema compatibility
-with the Parquet output for consumers who prefer JSON.
+This module provides functionality to write assembled records to JSON files,
+maintaining schema compatibility with the Parquet output for consumers who prefer JSON.
 """
 
 from __future__ import annotations
@@ -14,16 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from assembler.models.environment import Environment
-from assembler.models.measurement import Reflectivity
-from assembler.models.sample import Sample
 from assembler.workflow import AssemblyResult
-
-from .serializers import (
-    environment_to_record,
-    reflectivity_to_record,
-    sample_to_record,
-)
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -57,19 +47,16 @@ class JSONWriter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_reflectivity(self, measurement: Reflectivity) -> Path:
+    def write_reflectivity(self, record: dict[str, Any]) -> Path:
         """
-        Write a Reflectivity measurement to JSON.
+        Write a reflectivity record to JSON.
 
         Args:
-            measurement: The Reflectivity model to write
+            record: The reflectivity record dict
 
         Returns:
             Path to the written JSON file
         """
-        record = reflectivity_to_record(measurement)
-        
-        # Create output path
         output_path = self.output_dir / "reflectivity.json"
         
         with open(output_path, "w") as f:
@@ -77,18 +64,16 @@ class JSONWriter:
         
         return output_path
 
-    def write_sample(self, sample: Sample) -> Path:
+    def write_sample(self, record: dict[str, Any]) -> Path:
         """
-        Write a Sample to JSON.
+        Write a sample record to JSON.
 
         Args:
-            sample: The Sample model to write
+            record: The sample record dict
 
         Returns:
             Path to the written JSON file
         """
-        record = sample_to_record(sample)
-        
         output_path = self.output_dir / "sample.json"
         
         with open(output_path, "w") as f:
@@ -96,18 +81,16 @@ class JSONWriter:
         
         return output_path
 
-    def write_environment(self, env: Environment) -> Path:
+    def write_environment(self, record: dict[str, Any]) -> Path:
         """
-        Write an Environment to JSON.
+        Write an environment record to JSON.
 
         Args:
-            env: The Environment model to write
+            record: The environment record dict
 
         Returns:
             Path to the written JSON file
         """
-        record = environment_to_record(env)
-        
         output_path = self.output_dir / "environment.json"
         
         with open(output_path, "w") as f:
@@ -149,13 +132,6 @@ def write_assembly_to_json(result: AssemblyResult, output_dir: str | Path) -> di
 
     Returns:
         Dict mapping table names to written file paths
-
-    Example:
-        assembler = DataAssembler()
-        result = assembler.assemble(reduced_data, parquet_data)
-
-        paths = write_assembly_to_json(result, "/data/output")
-        print(f"Wrote reflectivity to: {paths['reflectivity']}")
     """
     writer = JSONWriter(output_dir)
     return writer.write_all(result)

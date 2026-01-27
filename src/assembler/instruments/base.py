@@ -10,8 +10,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional, Type
 
-from assembler.models import Environment, Facility, Reflectivity, Sample
-from assembler.parsers import ModelData, ParquetData, ReducedData
+from assembler.enums import Facility
+from assembler.parsers import ParquetData
 
 
 @dataclass
@@ -19,6 +19,7 @@ class InstrumentDefaults:
     """Default values for an instrument."""
 
     facility: Facility
+    laboratory: str = "ORNL"
     probe: str = "neutrons"
     technique: str = "reflectivity"
     measurement_geometry: Optional[float] = None
@@ -182,9 +183,9 @@ class Instrument(ABC):
     @classmethod
     def validate_data(
         cls,
-        reflectivity: Optional[Reflectivity] = None,
-        sample: Optional[Sample] = None,
-        environment: Optional[Environment] = None,
+        reflectivity: Optional[dict[str, Any]] = None,
+        sample: Optional[dict[str, Any]] = None,
+        environment: Optional[dict[str, Any]] = None,
     ) -> list[str]:
         """
         Perform instrument-specific validation.
@@ -192,9 +193,9 @@ class Instrument(ABC):
         Override in subclasses for specific validation rules.
 
         Args:
-            reflectivity: The reflectivity model
-            sample: The sample model
-            environment: The environment model
+            reflectivity: The reflectivity record dict
+            sample: The sample record dict
+            environment: The environment record dict
 
         Returns:
             List of warning/error messages

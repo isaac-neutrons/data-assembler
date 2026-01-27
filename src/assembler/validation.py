@@ -8,9 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from pydantic import ValidationError
-
-from assembler.models import Environment, Reflectivity, Sample
 from assembler.workflow import AssemblyResult
 
 logger = logging.getLogger(__name__)
@@ -65,13 +62,12 @@ class ValidationResult:
 
 class DataValidator:
     """
-    Validates assembled data against schema and quality rules.
+    Validates assembled data records against schema and quality rules.
 
     Validation levels:
-    1. Schema validation - Pydantic model validation
-    2. Cross-reference validation - Links between models
+    1. Schema validation - Check required fields and types
+    2. Cross-reference validation - Links between records
     3. Data quality validation - Scientific data quality checks
-    4. Compatibility validation - Optional raven_ai compatibility
 
     Usage:
         validator = DataValidator()
@@ -119,15 +115,15 @@ class DataValidator:
         for warning in assembly.warnings:
             result.add_warning("assembly", warning)
 
-        # Validate Reflectivity
+        # Validate Reflectivity record
         if assembly.reflectivity:
             self._validate_reflectivity(assembly.reflectivity, result)
 
-        # Validate Sample
+        # Validate Sample record
         if assembly.sample:
             self._validate_sample(assembly.sample, result)
 
-        # Validate Environment
+        # Validate Environment record
         if assembly.environment:
             self._validate_environment(assembly.environment, result)
 
@@ -138,83 +134,93 @@ class DataValidator:
         if self.check_quality:
             self._validate_data_quality(assembly, result)
 
-        # Compatibility checks
-        if self.check_compatibility:
-            self._validate_compatibility(assembly, result)
-
         # Note items needing review
         for key, value in assembly.needs_review.items():
             result.add_info(key, f"Needs review: {value}")
 
         return result
 
-    def _validate_reflectivity(self, refl: Reflectivity, result: ValidationResult) -> None:
-        """Validate Reflectivity model."""
-        # Array length consistency
-        n_points = len(refl.q)
+    def _validate_reflectivity(self, record: dict[str, Any], result: ValidationResult) -> None:
+        """Validate reflectivity record."""
+        # Get reflectivity data from nested struct
+        refl_data = record.get("reflectivity", {})
+        
+        q = refl_data.get("q", [])
+        r = refl_data.get("r", [])
+        dr = refl_data.get("dr", [])
+        dq = refl_data.get("dq", [])
+        
+        n_points = len(q)
 
-        if len(refl.r) != n_points:
+        # Array length consistency
+        if len(r) != n_points:
             result.add_error(
                 "reflectivity.r",
-                f"R array length ({len(refl.r)}) doesn't match Q ({n_points})",
+                f"R array length ({len(r)}) doesn't match Q ({n_points})",
             )
 
-        if len(refl.dr) != n_points:
+        if len(dr) != n_points:
             result.add_error(
                 "reflectivity.dr",
-                f"dR array length ({len(refl.dr)}) doesn't match Q ({n_points})",
+                f"dR array length ({len(dr)}) doesn't match Q ({n_points})",
             )
 
-        if len(refl.dq) != n_points:
+        if len(dq) != n_points:
             result.add_error(
                 "reflectivity.dq",
-                f"dQ array length ({len(refl.dq)}) doesn't match Q ({n_points})",
+                f"dQ array length ({len(dq)}) doesn't match Q ({n_points})",
             )
 
         # Required field checks
-        if refl.proposal_number == "UNKNOWN":
+        if record.get("proposal_number") == "UNKNOWN":
             result.add_warning("reflectivity.proposal_number", "Proposal number is UNKNOWN")
 
-        if refl.run_number == "UNKNOWN":
+        if record.get("run_number") == "UNKNOWN":
             result.add_warning("reflectivity.run_number", "Run number is UNKNOWN")
 
-    def _validate_sample(self, sample: Sample, result: ValidationResult) -> None:
-        """Validate Sample model."""
+    def _validate_sample(self, record: dict[str, Any], result: ValidationResult) -> None:
+        """Validate sample record."""
+        layers = record.get("layers", [])
+        substrate_json = record.get("substrate_json")
+        
         # Check for layers
-        if not sample.layers and sample.substrate is None:
+        if not layers and substrate_json is None:
             result.add_warning("sample.layers", "Sample has no layers defined")
 
         # Check main composition
-        if sample.main_composition == "Unknown":
+        if record.get("main_composition") == "Unknown":
             result.add_warning("sample.main_composition", "Main composition is unknown")
 
         # Check for generic layer names
-        for i, layer in enumerate(sample.layers):
-            if layer.name.lower() in ["material", "layer", "film", "unknown"]:
+        for i, layer in enumerate(layers):
+            layer_name = layer.get("material", "")
+            if layer_name and layer_name.lower() in ["material", "layer", "film", "unknown"]:
                 result.add_warning(
-                    f"sample.layers[{i}].name",
-                    f"Generic layer name '{layer.name}'",
+                    f"sample.layers[{i}].material",
+                    f"Generic layer name '{layer_name}'",
                 )
 
-    def _validate_environment(self, env: Environment, result: ValidationResult) -> None:
-        """Validate Environment model."""
+    def _validate_environment(self, record: dict[str, Any], result: ValidationResult) -> None:
+        """Validate environment record."""
+        temperature = record.get("temperature")
+        
         # Check for missing temperature
-        if env.temperature is None:
+        if temperature is None:
             result.add_info("environment.temperature", "Temperature not recorded")
 
         # Check for reasonable temperature range (if present)
-        if env.temperature is not None:
-            if env.temperature < 0 or env.temperature > 1000:
+        if temperature is not None:
+            if temperature < 0 or temperature > 1000:
                 result.add_warning(
                     "environment.temperature",
-                    f"Unusual temperature: {env.temperature}K",
-                    env.temperature,
+                    f"Unusual temperature: {temperature}K",
+                    temperature,
                 )
 
     def _validate_cross_references(
         self, assembly: AssemblyResult, result: ValidationResult
     ) -> None:
-        """Validate cross-references between models."""
+        """Validate cross-references between records."""
         # If we have both reflectivity and sample, they should be linked
         if assembly.reflectivity and assembly.sample:
             # In future: check that sample_id on reflectivity points to sample
@@ -230,10 +236,19 @@ class DataValidator:
         if assembly.reflectivity is None:
             return
 
-        refl = assembly.reflectivity
+        record = assembly.reflectivity
+        refl_data = record.get("reflectivity", {})
+        
+        q = refl_data.get("q", [])
+        r = refl_data.get("r", [])
+        dr = refl_data.get("dr", [])
+        dq = refl_data.get("dq", [])
+
+        if not q:
+            return
 
         # Check Q range
-        q_min, q_max = refl.q_range
+        q_min, q_max = min(q), max(q)
         if q_min <= 0:
             result.add_error(
                 "reflectivity.q",
@@ -241,7 +256,7 @@ class DataValidator:
             )
 
         # Check for negative reflectivity values
-        negative_r = sum(1 for r in refl.r if r < 0)
+        negative_r = sum(1 for rv in r if rv < 0)
         if negative_r > 0:
             result.add_warning(
                 "reflectivity.r",
@@ -249,15 +264,15 @@ class DataValidator:
             )
 
         # Check for reflectivity > 1 at low Q (should be ~1 for total reflection)
-        high_r_count = sum(1 for i, r in enumerate(refl.r) if refl.q[i] < 0.02 and r > 1.5)
-        if high_r_count > len(refl.r) * 0.1:
+        high_r_count = sum(1 for i, rv in enumerate(r) if q[i] < 0.02 and rv > 1.5)
+        if high_r_count > len(r) * 0.1:
             result.add_warning(
                 "reflectivity.r",
                 "Many R values > 1.5 at low Q - check normalization",
             )
 
         # Check uncertainties are positive
-        negative_dr = sum(1 for dr in refl.dr if dr < 0)
+        negative_dr = sum(1 for drv in dr if drv < 0)
         if negative_dr > 0:
             result.add_error(
                 "reflectivity.dr",
@@ -265,8 +280,8 @@ class DataValidator:
             )
 
         # Check dQ values
-        if refl.dq:
-            negative_dq = sum(1 for dq in refl.dq if dq < 0)
+        if dq:
+            negative_dq = sum(1 for dqv in dq if dqv < 0)
             if negative_dq > 0:
                 result.add_error(
                     "reflectivity.dq",
@@ -274,38 +289,11 @@ class DataValidator:
                 )
 
         # Check data point count
-        if len(refl.q) < 10:
+        if len(q) < 10:
             result.add_warning(
                 "reflectivity.q",
-                f"Only {len(refl.q)} data points - unusually small dataset",
+                f"Only {len(q)} data points - unusually small dataset",
             )
-
-    def _validate_compatibility(
-        self, assembly: AssemblyResult, result: ValidationResult
-    ) -> None:
-        """Check compatibility with raven_ai schema."""
-        from assembler.compat import is_raven_ai_available, validate_against_raven
-
-        if not is_raven_ai_available():
-            result.add_info(
-                "compatibility",
-                "raven_ai not installed - skipping compatibility check",
-            )
-            return
-
-        # Validate Reflectivity
-        if assembly.reflectivity:
-            data = assembly.reflectivity.model_dump()
-            is_valid, error = validate_against_raven("Reflectivity", data)
-            if not is_valid:
-                result.add_warning("compatibility.reflectivity", error or "Incompatible")
-
-        # Validate Sample
-        if assembly.sample:
-            data = assembly.sample.model_dump()
-            is_valid, error = validate_against_raven("Sample", data)
-            if not is_valid:
-                result.add_warning("compatibility.sample", error or "Incompatible")
 
 
 def validate_assembly(

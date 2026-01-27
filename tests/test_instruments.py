@@ -4,9 +4,9 @@ Tests for instrument-specific handlers.
 
 import pytest
 
+from assembler.enums import Facility
 from assembler.instruments import Instrument, InstrumentRegistry, REF_L
 from assembler.instruments.base import GenericInstrument, ExtractedEnvironment
-from assembler.models import Facility
 
 
 class TestInstrumentRegistry:

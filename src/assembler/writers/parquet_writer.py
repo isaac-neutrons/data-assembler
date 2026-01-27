@@ -14,12 +14,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from assembler.models.environment import Environment
-from assembler.models.measurement import Reflectivity
-from assembler.models.sample import Sample
-
 from .schemas import ENVIRONMENT_SCHEMA, REFLECTIVITY_SCHEMA, SAMPLE_SCHEMA
-from .serializers import environment_to_record, reflectivity_to_record, sample_to_record
 
 if TYPE_CHECKING:
     from assembler.workflow import AssemblyResult
@@ -27,14 +22,14 @@ if TYPE_CHECKING:
 
 class ParquetWriter:
     """
-    Writes assembled data models to Parquet files.
+    Writes assembled data records to Parquet files.
 
     Supports partitioned output by facility and year for Iceberg compatibility.
 
     Example:
         writer = ParquetWriter("/data/lakehouse")
-        writer.write(reflectivity_measurement)
-        writer.write(sample_instance)
+        writer.write_reflectivity(reflectivity_record)
+        writer.write_sample(sample_record)
 
         # Or write an assembly result
         writer.write(assembly_result)
@@ -86,39 +81,50 @@ class ParquetWriter:
 
     def write(
         self,
-        model: Reflectivity | Sample | Environment | AssemblyResult,
+        data: dict[str, Any] | AssemblyResult,
+        table_type: str | None = None,
         **partition_kwargs: Any,
     ) -> Path | dict[str, str]:
         """
-        Write a model instance or assembly result to Parquet.
+        Write a record or assembly result to Parquet.
 
-        Automatically detects model type and writes to appropriate table.
-        If an AssemblyResult is passed, writes all contained models.
+        Automatically detects record type and writes to appropriate table.
+        If an AssemblyResult is passed, writes all contained records.
 
         Args:
-            model: The model instance or AssemblyResult to write
+            data: The record dict or AssemblyResult to write
+            table_type: Type of table ('reflectivity', 'sample', 'environment')
+                       Required if data is a dict
             **partition_kwargs: Partitioning options (facility, year)
 
         Returns:
-            Path to the written file (for single models), or
+            Path to the written file (for single records), or
             Dict mapping table names to paths (for AssemblyResult)
         """
-        # Check if it's an AssemblyResult (duck typing to avoid circular import)
-        if (
-            hasattr(model, "reflectivity")
-            and hasattr(model, "sample")
-            and hasattr(model, "environment")
-        ):
-            return self._write_assembly_result(model, **partition_kwargs)
+        # Check if it's an AssemblyResult
+        if hasattr(data, "reflectivity") and hasattr(data, "sample") and hasattr(data, "environment"):
+            return self._write_assembly_result(data, **partition_kwargs)
 
-        if isinstance(model, Reflectivity):
-            return self.write_reflectivity(model, **partition_kwargs)
-        elif isinstance(model, Sample):
-            return self.write_sample(model, **partition_kwargs)
-        elif isinstance(model, Environment):
-            return self.write_environment(model, **partition_kwargs)
+        # It's a dict record - need table_type
+        if table_type is None:
+            # Try to detect from record structure
+            if "reflectivity" in data and isinstance(data["reflectivity"], dict):
+                table_type = "reflectivity"
+            elif "layers" in data or "layers_json" in data:
+                table_type = "sample"
+            elif "ambient_medium" in data or "temperature" in data:
+                table_type = "environment"
+            else:
+                raise ValueError("Cannot detect table type. Please specify table_type parameter.")
+
+        if table_type == "reflectivity":
+            return self.write_reflectivity(data, **partition_kwargs)
+        elif table_type == "sample":
+            return self.write_sample(data)
+        elif table_type == "environment":
+            return self.write_environment(data)
         else:
-            raise TypeError(f"Unsupported model type: {type(model)}")
+            raise ValueError(f"Unknown table type: {table_type}")
 
     def _write_assembly_result(
         self,
@@ -126,10 +132,10 @@ class ParquetWriter:
         **partition_kwargs: Any,
     ) -> dict[str, str]:
         """
-        Write all models from an AssemblyResult.
+        Write all records from an AssemblyResult.
 
         Args:
-            result: The assembly result containing models to write
+            result: The assembly result containing records to write
             **partition_kwargs: Partitioning options
 
         Returns:
@@ -142,26 +148,26 @@ class ParquetWriter:
             paths["reflectivity"] = str(path)
 
         if result.sample:
-            path = self.write_sample(result.sample, **partition_kwargs)
+            path = self.write_sample(result.sample)
             paths["sample"] = str(path)
 
         if result.environment:
-            path = self.write_environment(result.environment, **partition_kwargs)
+            path = self.write_environment(result.environment)
             paths["environment"] = str(path)
 
         return paths
 
     def write_reflectivity(
         self,
-        measurement: Reflectivity,
+        record: dict[str, Any],
         facility: str | None = None,
         year: int | None = None,
     ) -> Path:
         """
-        Write a reflectivity measurement to Parquet.
+        Write a reflectivity record to Parquet.
 
         Args:
-            measurement: The Reflectivity instance
+            record: The reflectivity record dict matching REFLECTIVITY_SCHEMA
             facility: Partition by facility (auto-detected if not provided)
             year: Partition by year (auto-detected from run_start if not provided)
 
@@ -169,67 +175,68 @@ class ParquetWriter:
             Path to the written file
         """
         # Auto-detect partitions from data
-        if facility is None and measurement.facility:
-            fac = measurement.facility
-            facility = fac.value if hasattr(fac, "value") else fac
-        if year is None and measurement.run_start:
-            year = measurement.run_start.year
+        if facility is None:
+            facility = record.get("facility")
+        if year is None:
+            run_start = record.get("run_start")
+            if run_start and hasattr(run_start, "year"):
+                year = run_start.year
 
-        record = reflectivity_to_record(measurement)
         table = pa.Table.from_pylist([record], schema=REFLECTIVITY_SCHEMA)
 
         partition_dir = self._get_partition_path("reflectivity", facility, year)
         partition_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = f"{measurement.run_number or measurement.id}.parquet"
+        run_number = record.get("run_number") or record.get("id") or "unknown"
+        filename = f"{run_number}.parquet"
         output_path = partition_dir / filename
 
         pq.write_table(table, output_path)
         return output_path
 
-    def write_sample(self, sample: Sample) -> Path:
+    def write_sample(self, record: dict[str, Any]) -> Path:
         """
-        Write a sample to Parquet.
+        Write a sample record to Parquet.
 
         Samples are not partitioned (relatively small dataset).
 
         Args:
-            sample: The Sample instance
+            record: The sample record dict matching SAMPLE_SCHEMA
 
         Returns:
             Path to the written file
         """
-        record = sample_to_record(sample)
         table = pa.Table.from_pylist([record], schema=SAMPLE_SCHEMA)
 
         partition_dir = self._get_partition_path("sample")
         partition_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = f"{sample.id}.parquet"
+        sample_id = record.get("id") or "unknown"
+        filename = f"{sample_id}.parquet"
         output_path = partition_dir / filename
 
         pq.write_table(table, output_path)
         return output_path
 
-    def write_environment(self, env: Environment) -> Path:
+    def write_environment(self, record: dict[str, Any]) -> Path:
         """
-        Write an environment to Parquet.
+        Write an environment record to Parquet.
 
         Environments are not partitioned (relatively small dataset).
 
         Args:
-            env: The Environment instance
+            record: The environment record dict matching ENVIRONMENT_SCHEMA
 
         Returns:
             Path to the written file
         """
-        record = environment_to_record(env)
         table = pa.Table.from_pylist([record], schema=ENVIRONMENT_SCHEMA)
 
         partition_dir = self._get_partition_path("environment")
         partition_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = f"{env.id}.parquet"
+        env_id = record.get("id") or "unknown"
+        filename = f"{env_id}.parquet"
         output_path = partition_dir / filename
 
         pq.write_table(table, output_path)
@@ -237,17 +244,19 @@ class ParquetWriter:
 
     def write_batch(
         self,
-        models: list[Reflectivity | Sample | Environment],
+        records: list[dict[str, Any]],
+        table_type: str,
         **partition_kwargs: Any,
     ) -> list[Path]:
         """
-        Write multiple models to Parquet files.
+        Write multiple records to Parquet files.
 
         Args:
-            models: List of model instances
+            records: List of record dicts
+            table_type: Type of records ('reflectivity', 'sample', 'environment')
             **partition_kwargs: Partitioning options passed to each write
 
         Returns:
             List of paths to written files
         """
-        return [self.write(model, **partition_kwargs) for model in models]
+        return [self.write(record, table_type=table_type, **partition_kwargs) for record in records]

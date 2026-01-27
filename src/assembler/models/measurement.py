@@ -5,41 +5,14 @@ Includes base Measurement and specialized Reflectivity models.
 """
 
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Optional
 
 import numpy as np
 from pydantic import Field, field_validator
 from numpy.typing import NDArray
 
+from assembler.enums import Facility, Probe, Technique
 from assembler.models.base import DataModel
-
-
-class Facility(str, Enum):
-    """Supported neutron/X-ray facilities."""
-
-    SNS = "SNS"
-    HFIR = "HFIR"
-    LCLS = "LCLS"
-    NIST = "NIST"
-    OTHER = "OTHER"
-
-
-class Probe(str, Enum):
-    """Radiation probe types."""
-
-    NEUTRONS = "neutrons"
-    XRAY = "xray"
-    OTHER = "other"
-
-
-class Technique(str, Enum):
-    """Measurement techniques."""
-
-    REFLECTIVITY = "reflectivity"
-    SANS = "SANS"
-    EIS = "EIS"
-    OTHER = "other"
 
 
 class Measurement(DataModel):

@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from assembler.models import Facility
+from assembler.enums import Facility
 from assembler.parsers import ParquetData
 
 from .base import (
@@ -48,6 +48,7 @@ class REF_L(Instrument):
 
     defaults = InstrumentDefaults(
         facility=Facility.SNS,
+        laboratory="ORNL",
         probe="neutrons",
         technique="reflectivity",
         # REF_L typically uses wavelengths around 6 Angstroms

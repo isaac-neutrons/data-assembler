@@ -2,11 +2,11 @@
 Workflow module for data assembly and ingestion.
 
 This module provides the main data assembly workflow that combines
-parsed data from multiple sources into target lakehouse schema models.
+parsed data from multiple sources into schema-ready records for the lakehouse.
 
 Module structure:
 - result.py: AssemblyResult dataclass
-- builders.py: Model builder functions for Reflectivity, Sample, Environment
+- record_builders.py: Record builder functions for Reflectivity, Sample, Environment
 - assembler.py: Main DataAssembler orchestrator class
 """
 
@@ -16,10 +16,10 @@ from typing import Optional
 from .assembler import DataAssembler
 
 # Re-export builders for advanced use
-from .builders import (
-    build_environment,
-    build_reflectivity,
-    build_sample,
+from .record_builders import (
+    build_environment_record,
+    build_reflectivity_record,
+    build_sample_record,
     detect_facility,
 )
 
@@ -30,10 +30,10 @@ __all__ = [
     # Main classes
     "AssemblyResult",
     "DataAssembler",
-    # Builders (for advanced/custom workflows)
-    "build_reflectivity",
-    "build_environment",
-    "build_sample",
+    # Record builders (for advanced/custom workflows)
+    "build_reflectivity_record",
+    "build_environment_record",
+    "build_sample_record",
     "detect_facility",
     # Convenience function
     "assemble_from_files",
@@ -58,7 +58,7 @@ def assemble_from_files(
         model_path: Path to model JSON file
 
     Returns:
-        AssemblyResult with assembled models
+        AssemblyResult with assembled records
 
     Example:
         result = assemble_from_files(
@@ -68,7 +68,8 @@ def assemble_from_files(
         )
 
         if result.is_complete:
-            print(f"Assembled measurement with {len(result.reflectivity.q)} points")
+            refl = result.reflectivity
+            print(f"Assembled measurement with {len(refl['reflectivity']['q'])} points")
     """
     from assembler.parsers import ModelParser, ParquetParser, ReducedParser
 

@@ -169,10 +169,12 @@ class TestCLIIngest:
         # Should have the same fields as the parquet schema
         assert "id" in data
         assert "run_number" in data
-        assert "q" in data
-        assert "r" in data
+        # Reflectivity data is now in nested 'reflectivity' struct
+        assert "reflectivity" in data
+        assert "q" in data["reflectivity"]
+        assert "r" in data["reflectivity"]
         assert int(data["run_number"]) == 218386
-        assert len(data["q"]) == 2
+        assert len(data["reflectivity"]["q"]) == 2
 
 
 class TestCLIHelp:

@@ -104,7 +104,7 @@ def get_parquet_schema_mapping(model_name: str) -> dict[str, str]:
         **base_fields,
         "proposal_number": "string",
         "facility": "string",  # Enum serialized as string
-        "lab": "string",
+        "laboratory": "string",  # Schema uses 'laboratory'
         "probe": "string",  # Enum serialized as string
         "technique": "string",  # Enum serialized as string
         "technique_description": "string",
@@ -119,24 +119,21 @@ def get_parquet_schema_mapping(model_name: str) -> dict[str, str]:
 
     reflectivity_fields = {
         **measurement_fields,
-        "q": "list<double>",
-        "r": "list<double>",
-        "dr": "list<double>",
-        "dq": "list<double>",
-        "measurement_geometry": "double",
-        "reduction_time": "timestamp[us, tz=UTC]",
-        "reduction_version": "string",
-        "reduction_parameters": "string",  # JSON serialized
+        # Reflectivity data stored in nested struct
+        "reflectivity": "struct<measurement_geometry: double, reduction_time: timestamp[us, tz=UTC], "
+                       "reduction_version: string, reduction_parameters: string, "
+                       "q: list<double>, r: list<double>, dr: list<double>, dq: list<double>>",
     }
 
     sample_fields = {
         **base_fields,
         "description": "string",
         "environment_ids": "list<string>",
-        "substrate": "struct",  # Nested Layer
+        "substrate_json": "string",  # JSON serialized
         "main_composition": "string",
         "geometry": "string",
-        "layers": "list<struct>",  # List of Layer
+        "layers_json": "string",  # JSON serialized
+        "layers": "list<struct<layer_number: int32, material: string, thickness: double, roughness: double, sld: double>>",
     }
 
     environment_fields = {

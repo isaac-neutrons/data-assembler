@@ -7,20 +7,18 @@ Holds the output of the data assembly process.
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from assembler.models import Environment, Reflectivity, Sample
-
 
 @dataclass
 class AssemblyResult:
     """
     Result of assembling data from multiple sources.
 
-    Contains the assembled models and any issues encountered.
+    Contains the assembled records (dicts matching schema) and any issues encountered.
 
     Attributes:
-        reflectivity: The assembled Reflectivity measurement
-        sample: The assembled Sample with layer stack
-        environment: The assembled Environment conditions
+        reflectivity: The assembled reflectivity record (dict matching REFLECTIVITY_SCHEMA)
+        sample: The assembled sample record (dict matching SAMPLE_SCHEMA)
+        environment: The assembled environment record (dict matching ENVIRONMENT_SCHEMA)
         reduced_file: Path to source reduced data file
         parquet_dir: Path to source parquet directory
         model_file: Path to source model JSON file
@@ -29,10 +27,10 @@ class AssemblyResult:
         needs_review: Fields requiring human/AI review
     """
 
-    # Assembled models
-    reflectivity: Optional[Reflectivity] = None
-    sample: Optional[Sample] = None
-    environment: Optional[Environment] = None
+    # Assembled records (dicts matching schemas)
+    reflectivity: Optional[dict[str, Any]] = None
+    sample: Optional[dict[str, Any]] = None
+    environment: Optional[dict[str, Any]] = None
 
     # Source files used
     reduced_file: Optional[str] = None
@@ -58,15 +56,58 @@ class AssemblyResult:
 
     @property
     def has_sample(self) -> bool:
-        """Check if sample model was assembled."""
+        """Check if sample was assembled."""
         return self.sample is not None
 
     @property
     def has_environment(self) -> bool:
-        """Check if environment model was assembled."""
+        """Check if environment was assembled."""
         return self.environment is not None
 
     @property
     def needs_human_review(self) -> bool:
         """Check if any fields need human review."""
         return len(self.needs_review) > 0
+
+    def summary(self) -> str:
+        """Generate a human-readable summary."""
+        lines = ["Assembly Summary:"]
+
+        if self.reflectivity:
+            refl = self.reflectivity
+            refl_data = refl.get("reflectivity", {})
+            q = refl_data.get("q", [])
+            lines.append(f"  Reflectivity: {refl.get('run_number')} - {refl.get('run_title')}")
+            lines.append(f"    Facility: {refl.get('facility')}")
+            lines.append(f"    Q points: {len(q)}")
+            if q:
+                lines.append(f"    Q range: {min(q):.4f} - {max(q):.4f} Å⁻¹")
+        else:
+            lines.append("  Reflectivity: Not assembled")
+
+        if self.sample:
+            lines.append(f"  Sample: {self.sample.get('description', 'Unknown')}")
+            layers = self.sample.get("layers", [])
+            lines.append(f"    Layers: {len(layers)}")
+        else:
+            lines.append("  Sample: Not assembled")
+
+        if self.environment:
+            lines.append(f"  Environment: {self.environment.get('description', 'Unknown')}")
+            temp = self.environment.get("temperature")
+            if temp:
+                lines.append(f"    Temperature: {temp:.1f} K")
+        else:
+            lines.append("  Environment: Not assembled")
+
+        if self.warnings:
+            lines.append(f"\nWarnings ({len(self.warnings)}):")
+            for w in self.warnings[:5]:  # Limit to first 5
+                lines.append(f"  - {w}")
+
+        if self.errors:
+            lines.append(f"\nErrors ({len(self.errors)}):")
+            for e in self.errors:
+                lines.append(f"  - {e}")
+
+        return "\n".join(lines)

@@ -9,7 +9,11 @@ from typing import Optional
 
 from assembler.parsers import ModelData, ParquetData, ReducedData
 
-from .builders import build_environment, build_reflectivity, build_sample
+from .record_builders import (
+    build_environment_record,
+    build_reflectivity_record,
+    build_sample_record,
+)
 from .result import AssemblyResult
 
 logger = logging.getLogger(__name__)
@@ -17,12 +21,12 @@ logger = logging.getLogger(__name__)
 
 class DataAssembler:
     """
-    Assembles data from multiple sources into lakehouse models.
+    Assembles data from multiple sources into schema-ready records.
 
     Workflow:
-    1. Parse reduced data → Reflectivity base data (Q, R, dR, dQ)
-    2. Parse parquet files → Measurement metadata, Environment
-    3. Parse model JSON → Sample with layers
+    1. Parse reduced data → Reflectivity record (Q, R, dR, dQ + metadata)
+    2. Parse parquet files → Environment record from DASlogs
+    3. Parse model JSON → Sample record with layers
 
     Example:
         assembler = DataAssembler()
@@ -36,7 +40,8 @@ class DataAssembler:
 
         # Check result
         if result.is_complete:
-            print(f"Assembled {len(result.reflectivity.q)} Q points")
+            refl = result.reflectivity
+            print(f"Assembled {len(refl['reflectivity']['q'])} Q points")
         if result.needs_human_review:
             print(f"Review needed: {result.needs_review}")
     """
@@ -48,7 +53,7 @@ class DataAssembler:
         model: Optional[ModelData] = None,
     ) -> AssemblyResult:
         """
-        Assemble data from parsed sources into target models.
+        Assemble data from parsed sources into schema-ready records.
 
         At minimum, reduced data is required. Parquet and model data
         enrich the result with additional metadata.
@@ -59,7 +64,7 @@ class DataAssembler:
             model: Parsed model JSON data (optional)
 
         Returns:
-            AssemblyResult with assembled models and any issues
+            AssemblyResult with assembled records and any issues
         """
         result = AssemblyResult()
 
@@ -69,17 +74,33 @@ class DataAssembler:
 
         result.reduced_file = reduced.file_path
 
-        # Step 1: Build Reflectivity from reduced + parquet
-        result.reflectivity = build_reflectivity(reduced, parquet, result)
+        # Step 1: Build Reflectivity record from reduced + parquet
+        result.reflectivity = build_reflectivity_record(
+            reduced=reduced,
+            parquet=parquet,
+            warnings=result.warnings,
+            errors=result.errors,
+            needs_review=result.needs_review,
+        )
 
-        # Step 2: Build Environment from parquet daslogs
+        # Step 2: Build Environment record from parquet daslogs
         if parquet is not None:
-            result.environment = build_environment(parquet, result)
+            result.environment = build_environment_record(
+                parquet=parquet,
+                warnings=result.warnings,
+                errors=result.errors,
+                needs_review=result.needs_review,
+            )
             result.parquet_dir = parquet.directory_path if hasattr(parquet, 'directory_path') else None
 
-        # Step 3: Build Sample from model
+        # Step 3: Build Sample record from model
         if model is not None:
-            result.sample = build_sample(model, result)
+            result.sample = build_sample_record(
+                model=model,
+                warnings=result.warnings,
+                errors=result.errors,
+                needs_review=result.needs_review,
+            )
             result.model_file = model.file_path
 
         return result

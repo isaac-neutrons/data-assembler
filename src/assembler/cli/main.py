@@ -652,28 +652,33 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
     click.echo("Assembly Summary:")
     if result.reflectivity:
         r = result.reflectivity
-        click.echo(f"  Reflectivity: {r.run_number} - {r.run_title}")
-        facility = r.facility.value if hasattr(r.facility, "value") else r.facility
+        click.echo(f"  Reflectivity: {r['run_number']} - {r['run_title']}")
+        facility = r.get("facility", "Unknown")
         click.echo(f"    Facility: {facility or 'Unknown'}")
-        click.echo(f"    Q points: {len(r.q) if r.q else 0}")
-        if r.q:
-            click.echo(f"    Q range: {min(r.q):.4f} - {max(r.q):.4f} Å⁻¹")
+        # Reflectivity data is in nested 'reflectivity' struct
+        refl_data = r.get("reflectivity", {})
+        q = refl_data.get("q", [])
+        click.echo(f"    Q points: {len(q) if q else 0}")
+        if q:
+            click.echo(f"    Q range: {min(q):.4f} - {max(q):.4f} Å⁻¹")
     else:
         click.echo("  Reflectivity: Not assembled")
 
     if result.sample:
         s = result.sample
-        click.echo(f"  Sample: {s.description}")
-        click.echo(f"    Layers: {len(s.layers) if s.layers else 0}")
-        click.echo(f"    Main composition: {s.main_composition}")
+        click.echo(f"  Sample: {s['description']}")
+        layers = s.get("layers", [])
+        click.echo(f"    Layers: {len(layers) if layers else 0}")
+        click.echo(f"    Main composition: {s.get('main_composition')}")
     else:
         click.echo("  Sample: Not assembled")
 
     if result.environment:
         e = result.environment
-        click.echo(f"  Environment: {e.description}")
-        if e.temperature:
-            click.echo(f"    Temperature: {e.temperature:.1f} K")
+        click.echo(f"  Environment: {e['description']}")
+        temp = e.get("temperature")
+        if temp:
+            click.echo(f"    Temperature: {temp:.1f} K")
     else:
         click.echo("  Environment: Not assembled")
 
