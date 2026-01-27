@@ -77,7 +77,7 @@ data-assembler find --run 218386 --search-path ~/data/
 ```python
 from assembler.parsers import ReducedParser, ParquetParser, ModelParser
 from assembler.workflow import DataAssembler
-from assembler.writers import write_assembly_to_parquet
+from assembler.writers import ParquetWriter
 
 # Parse input files
 reduced = ReducedParser().parse("REFL_218386_combined_data_auto.txt")
@@ -94,7 +94,8 @@ print(result.sample)        # Layer structure from model
 print(result.environment)   # Conditions from DAS logs
 
 # Write to parquet
-paths = write_assembly_to_parquet(result, output_dir)
+writer = ParquetWriter(output_dir)
+paths = writer.write(result)
 ```
 
 ## Instrument Support
