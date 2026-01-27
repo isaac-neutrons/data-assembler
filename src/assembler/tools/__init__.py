@@ -1,46 +1,20 @@
 """
-Tools module for file detection and linking.
+Tools for file detection and linking.
 
-Provides utilities to detect file types, extract identifiers (run number, IPTS),
-and find related files across a dataset.
+Main exports:
+- FileType: Enum of supported file types
+- FileFinder: Utility class to locate related files
 
-Module structure:
-- types.py: FileType enum, FileInfo and RelatedFiles dataclasses
-- detection.py: File type detection and identifier extraction functions
-- finder.py: FileFinder class for locating related files
+For detection functions and data types, import from specific modules::
+
+    from assembler.tools.types import FileInfo, RelatedFiles
+    from assembler.tools.detection import detect_file, extract_run_number
 """
 
-# Re-export types
-# Re-export detection functions
-from .detection import (
-    PATTERNS,
-    detect_file,
-    detect_file_type,
-    extract_instrument,
-    extract_ipts,
-    extract_run_number,
-)
-
-# Re-export finder
 from .finder import FileFinder
-from .types import (
-    FileInfo,
-    FileType,
-    RelatedFiles,
-)
+from .types import FileType
 
 __all__ = [
-    # Types
     "FileType",
-    "FileInfo",
-    "RelatedFiles",
-    # Detection functions
-    "PATTERNS",
-    "detect_file_type",
-    "detect_file",
-    "extract_run_number",
-    "extract_ipts",
-    "extract_instrument",
-    # Finder
     "FileFinder",
 ]

@@ -264,3 +264,37 @@ class ParquetWriter:
             List of paths to written files
         """
         return [self.write(record, table_type=table_type, **partition_kwargs) for record in records]
+
+
+def write_assembly_to_parquet(result: AssemblyResult, output_dir: str | Path) -> dict[str, Path]:
+    """
+    Convenience function to write all records from an assembly.
+
+    Args:
+        result: The AssemblyResult from DataAssembler
+        output_dir: Directory for output files
+
+    Returns:
+        Dict mapping table names to written file paths
+
+    Example::
+
+        assembler = DataAssembler()
+        result = assembler.assemble(reduced_data, parquet_data)
+
+        paths = write_assembly_to_parquet(result, "/data/lakehouse")
+        print(f"Wrote reflectivity to: {paths['reflectivity']}")
+    """
+    writer = ParquetWriter(output_dir)
+    paths: dict[str, Path] = {}
+
+    if result.reflectivity:
+        paths["reflectivity"] = writer.write_reflectivity(result.reflectivity)
+
+    if result.sample:
+        paths["sample"] = writer.write_sample(result.sample)
+
+    if result.environment:
+        paths["environment"] = writer.write_environment(result.environment)
+
+    return paths

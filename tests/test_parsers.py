@@ -9,12 +9,10 @@ from pathlib import Path
 
 from assembler.parsers import (
     ReducedParser,
-    ReducedData,
-    extract_run_number_from_filename,
     ModelParser,
-    ModelData,
-    ModelLayer,
 )
+from assembler.parsers.reduced_parser import ReducedData, extract_run_number_from_filename
+from assembler.parsers.model_parser import ModelData, ModelLayer
 
 
 class TestReducedParser:
@@ -201,7 +199,8 @@ class TestParquetParser:
     
     def test_import(self):
         """Test that ParquetParser can be imported."""
-        from assembler.parsers import ParquetParser, ParquetData
+        from assembler.parsers import ParquetParser
+        from assembler.parsers.parquet_parser import ParquetData
         assert ParquetParser is not None
         assert ParquetData is not None
 

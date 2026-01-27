@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from assembler.parsers import ParquetParser, ReducedParser
-from assembler.tools import detect_file_type, extract_run_number, FileType
+from assembler.tools import FileType
+from assembler.tools.detection import detect_file_type, extract_run_number
 from assembler.workflow import DataAssembler
 from assembler.writers import ParquetWriter
 

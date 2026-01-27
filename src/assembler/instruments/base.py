@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional, Type
 
-from assembler.parsers import ParquetData
+from assembler.parsers.parquet_parser import ParquetData
 
 
 @dataclass

@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Type
 
 from assembler.instruments import Instrument, InstrumentRegistry
-from assembler.parsers import ModelData, ParquetData, ReducedData
+from assembler.parsers.model_parser import ModelData
+from assembler.parsers.parquet_parser import ParquetData
+from assembler.parsers.reduced_parser import ReducedData
 
 logger = logging.getLogger(__name__)
 

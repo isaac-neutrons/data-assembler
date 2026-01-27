@@ -2,55 +2,24 @@
 File parsers for data ingestion.
 
 Provides parsers for:
-- Parquet files (nexus-processor output)
-- Reduced text files (reflectivity data)
-- Model JSON files (refl1d/bumps)
+- Parquet files (nexus-processor output): ParquetParser
+- Reduced text files (reflectivity data): ReducedParser
+- Model JSON files (refl1d/bumps): ModelParser
+
+For data types returned by parsers, import from the specific module::
+
+    from assembler.parsers.parquet_parser import ParquetData, MetadataRecord
+    from assembler.parsers.reduced_parser import ReducedData, ReductionRun
+    from assembler.parsers.model_parser import ModelData, ModelLayer
 """
 
-from assembler.parsers.model_parser import (
-    FitParameter,
-    ModelData,
-    ModelLayer,
-    ModelMaterial,
-    ModelParser,
-    extract_layers_for_sample,
-)
-from assembler.parsers.parquet_parser import (
-    DASLogRecord,
-    InstrumentRecord,
-    MetadataRecord,
-    ParquetData,
-    ParquetParser,
-    SampleRecord,
-    UserRecord,
-)
-from assembler.parsers.reduced_parser import (
-    ReducedData,
-    ReducedParser,
-    ReductionRun,
-    extract_run_number_from_filename,
-)
+from .model_parser import ModelParser
+from .parquet_parser import ParquetParser
+from .reduced_parser import ReducedParser
 
 __all__ = [
-    # Parquet
-    "ParquetParser",
-    "ParquetData",
-    "MetadataRecord",
-    "SampleRecord",
-    "InstrumentRecord",
-    "UserRecord",
-    "DASLogRecord",
-    # Reduced
-    "ReducedParser",
-    "ReducedData",
-    "ReductionRun",
-    "extract_run_number_from_filename",
-    # Model
     "ModelParser",
-    "ModelData",
-    "ModelLayer",
-    "ModelMaterial",
-    "FitParameter",
-    "extract_layers_for_sample",
+    "ParquetParser",
+    "ReducedParser",
 ]
 

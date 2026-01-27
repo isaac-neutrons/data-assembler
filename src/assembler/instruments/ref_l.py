@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from assembler.parsers import ParquetData
+from assembler.parsers.parquet_parser import ParquetData
 
 from .base import (
     ExtractedEnvironment,

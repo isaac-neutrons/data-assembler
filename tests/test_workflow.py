@@ -11,17 +11,21 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from assembler.parsers import ModelData, ParquetData, ReducedData, MetadataRecord, ModelLayer, ModelMaterial
+from assembler.parsers.model_parser import ModelData, ModelLayer, ModelMaterial
+from assembler.parsers.parquet_parser import ParquetData, MetadataRecord
+from assembler.parsers.reduced_parser import ReducedData
 from assembler.tools import (
-    FileInfo,
     FileType,
-    RelatedFiles,
+)
+from assembler.tools.types import FileInfo, RelatedFiles
+from assembler.tools.detection import (
     detect_file_type,
     extract_ipts,
     extract_run_number,
 )
 from assembler.workflow import AssemblyResult, DataAssembler
-from assembler.writers import ParquetWriter, write_assembly_to_parquet
+from assembler.writers import ParquetWriter
+from assembler.writers.parquet_writer import write_assembly_to_parquet
 
 
 class TestFileDetection:

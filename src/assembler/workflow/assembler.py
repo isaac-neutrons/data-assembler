@@ -7,7 +7,9 @@ The main orchestrator for the ingestion workflow.
 import logging
 from typing import Optional
 
-from assembler.parsers import ModelData, ParquetData, ReducedData
+from assembler.parsers.model_parser import ModelData
+from assembler.parsers.parquet_parser import ParquetData
+from assembler.parsers.reduced_parser import ReducedData
 
 from .record_builders import (
     build_environment_record,
