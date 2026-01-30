@@ -102,7 +102,6 @@ class ParquetData:
                 "max_value": log.max_value,
             }
         return None
-        return None
 
 
 class ParquetParser:
@@ -268,18 +267,6 @@ class ParquetParser:
         if hasattr(value, "item"):
             return value.item()
         return value
-
-    def _get_dict_value(self, row: Any, column: str) -> Optional[dict]:
-        """Safely get a dict value from a DataFrame row."""
-        value = self._get_value(row, column)
-        if value is None:
-            return None
-        if isinstance(value, dict):
-            return value
-        # Handle pyarrow map types
-        if hasattr(value, "as_py"):
-            return value.as_py()
-        return None
 
 
 def find_parquet_files(

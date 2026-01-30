@@ -18,10 +18,9 @@ from typing import Optional
 import click
 
 from assembler.parsers import ModelParser, ParquetParser, ReducedParser
-from assembler.tools import FileFinder, FileType
+from assembler.tools import FileFinder
 from assembler.tools.detection import detect_file, extract_run_number
 from assembler.workflow import AssemblyResult, DataAssembler
-from assembler.writers import JSONWriter, ParquetWriter
 from assembler.writers.json_writer import write_assembly_to_json
 from assembler.writers.parquet_writer import write_assembly_to_parquet
 

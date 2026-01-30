@@ -94,7 +94,6 @@ class DataAssembler:
                 needs_review=result.needs_review,
                 model=model,
             )
-            result.parquet_dir = parquet.directory_path if hasattr(parquet, 'directory_path') else None
 
         # Step 3: Build Sample record from model
         if model is not None:

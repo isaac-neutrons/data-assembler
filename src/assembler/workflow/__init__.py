@@ -5,9 +5,9 @@ Main exports:
 - DataAssembler: Orchestrates the assembly process
 - AssemblyResult: Container for assembled records
 
-For record builders (advanced use), import from specific modules::
+For record builders (advanced use), import from the builders subpackage::
 
-    from assembler.workflow.record_builders import build_reflectivity_record
+    from assembler.workflow.builders import build_reflectivity_record
 """
 
 from .assembler import DataAssembler
