@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Type
 
 from assembler.instruments import Instrument, InstrumentRegistry
+from assembler.parsers.model_parser import ModelData
 from assembler.parsers.parquet_parser import ParquetData
 from assembler.parsers.reduced_parser import ReducedData
 
@@ -21,12 +22,14 @@ def build_reflectivity_record(
     errors: list[str],
     needs_review: dict[str, Any],
     instrument_handler: Optional[Type[Instrument]] = None,
+    model: Optional[ModelData] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build a reflectivity record from reduced and parquet data.
 
     The reduced data provides Q, R, dR, dQ arrays and reduction metadata.
     The parquet data provides run metadata (proposal, title, timestamps).
+    The model data provides measurement geometry (front/back reflection).
 
     Args:
         reduced: Parsed reduced reflectivity data (required)
@@ -35,6 +38,7 @@ def build_reflectivity_record(
         errors: List to append errors to
         needs_review: Dict to record fields needing review
         instrument_handler: Optional specific instrument handler to use
+        model: Optional model data for geometry determination
 
     Returns:
         Dict matching REFLECTIVITY_SCHEMA, or None on error
@@ -85,10 +89,23 @@ def build_reflectivity_record(
 
         logger.debug(f"Using instrument handler: {instrument_handler.name}")
 
-        # Get measurement geometry from first run if available
+        # Determine measurement geometry from model layer order
+        # If first layer is ambient (thickness=0, typically air) -> back reflection
+        # If first layer is substrate or film -> front reflection
         measurement_geometry = None
-        if reduced.runs:
-            measurement_geometry = reduced.runs[0].two_theta
+        if model and model.layers:
+            first_layer = model.layers[0]
+            # Check if first layer is ambient (zero thickness, typically "air" or similar)
+            if first_layer.thickness == 0:
+                # First layer is ambient medium -> beam enters from ambient side
+                measurement_geometry = "back reflection"
+            else:
+                # First layer has thickness -> beam reflects from front
+                measurement_geometry = "front reflection"
+        else:
+            needs_review["measurement_geometry"] = (
+                "Could not determine geometry - no model data provided"
+            )
 
         # Build the record matching REFLECTIVITY_SCHEMA
         record = {

@@ -76,13 +76,14 @@ class DataAssembler:
 
         result.reduced_file = reduced.file_path
 
-        # Step 1: Build Reflectivity record from reduced + parquet
+        # Step 1: Build Reflectivity record from reduced + parquet + model
         result.reflectivity = build_reflectivity_record(
             reduced=reduced,
             parquet=parquet,
             warnings=result.warnings,
             errors=result.errors,
             needs_review=result.needs_review,
+            model=model,
         )
 
         # Step 2: Build Environment record from parquet daslogs

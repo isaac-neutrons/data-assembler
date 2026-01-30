@@ -35,7 +35,7 @@ REFLECTIVITY_SCHEMA = pa.schema(
             "reflectivity",
             pa.struct(
                 [
-                    ("measurement_geometry", pa.float64()),
+                    ("measurement_geometry", pa.string()),
                     ("reduction_time", pa.timestamp("us", tz="UTC")),
                     ("reduction_version", pa.string()),
                     ("q", pa.list_(pa.float64())),

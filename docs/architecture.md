@@ -130,7 +130,7 @@ All schemas are defined as PyArrow schemas in `writers/schemas.py` for Iceberg c
 
 The `reflectivity` struct contains:
 - `q`, `r`, `dr`, `dq`: float arrays from reduced data
-- `measurement_geometry`: float (two-theta angle)
+- `measurement_geometry`: string ("front reflection" or "back reflection")
 - `reduction_time`: timestamp
 - `reduction_version`: string
 

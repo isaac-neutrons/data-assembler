@@ -23,7 +23,6 @@ class InstrumentDefaults:
     technique: str = "reflectivity"
     technique_description: Optional[str] = None
     environment_description: str = "Sample cell"
-    measurement_geometry: Optional[float] = None
     wavelength: Optional[float] = None
     wavelength_spread: Optional[float] = None
 
