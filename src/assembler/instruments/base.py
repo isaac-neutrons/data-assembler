@@ -17,10 +17,11 @@ from assembler.parsers.parquet_parser import ParquetData
 class InstrumentDefaults:
     """Default values for an instrument."""
 
-    facility: str
+    facility: str = "SNS"
     laboratory: str = "ORNL"
     probe: str = "neutrons"
     technique: str = "reflectivity"
+    technique_description: Optional[str] = None
     measurement_geometry: Optional[float] = None
     wavelength: Optional[float] = None
     wavelength_spread: Optional[float] = None

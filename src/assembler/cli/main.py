@@ -380,10 +380,19 @@ def _write_debug_json(
         return v
 
     def _model_to_debug_dict(model) -> dict:
-        """Convert a Pydantic model to debug dict with field status."""
+        """Convert a Pydantic model or dict to debug dict with field status."""
         if model is None:
             return {"_status": "MISSING", "_note": "Model not created"}
 
+        # Handle plain dicts (AssemblyResult stores dicts, not Pydantic models)
+        if isinstance(model, dict):
+            result = {}
+            for field_name, value in model.items():
+                serialized = serialize_value(value, field_name)
+                result[field_name] = serialized
+            return result
+
+        # Handle Pydantic models
         result = {}
         # Get all fields from the model class (not instance)
         for field_name, field_info in model.__class__.model_fields.items():

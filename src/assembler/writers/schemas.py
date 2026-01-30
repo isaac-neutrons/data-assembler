@@ -14,6 +14,9 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
         ("is_deleted", pa.bool_()),
+        # Relationship fields (sample -> environment -> measurement)
+        ("sample_id", pa.string()),
+        ("environment_id", pa.string()),
         # Measurement fields
         ("proposal_number", pa.string()),
         ("facility", pa.string()),
@@ -27,7 +30,6 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("run_start", pa.timestamp("us", tz="UTC")),
         ("raw_file_path", pa.string()),
         ("instrument_name", pa.string()),
-        ("sample_id", pa.string()),
         # Reflectivity-specific fields
         (
             "reflectivity",
@@ -86,6 +88,8 @@ ENVIRONMENT_SCHEMA = pa.schema(
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
         ("is_deleted", pa.bool_()),
+        # Relationship field (sample -> environment)
+        ("sample_id", pa.string()),
         # Environment fields
         ("description", pa.string()),
         ("ambient_medium", pa.string()),

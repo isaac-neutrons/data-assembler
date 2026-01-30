@@ -50,6 +50,7 @@ class REF_L(Instrument):
         laboratory="ORNL",
         probe="neutrons",
         technique="reflectivity",
+        technique_description="Specular neutron reflectometry",
         # REF_L typically uses wavelengths around 6 Angstroms
         wavelength=6.0,
         wavelength_spread=0.02,  # ~2% dλ/λ

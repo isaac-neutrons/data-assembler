@@ -11,7 +11,7 @@ from assembler.parsers.model_parser import ModelData
 from assembler.parsers.parquet_parser import ParquetData
 from assembler.parsers.reduced_parser import ReducedData
 
-from .record_builders import (
+from .builders import (
     build_environment_record,
     build_reflectivity_record,
     build_sample_record,
@@ -105,4 +105,38 @@ class DataAssembler:
             )
             result.model_file = model.file_path
 
+        # Step 4: Link IDs across the hierarchy (sample -> environment -> measurement)
+        self._link_record_ids(result)
+
         return result
+
+    def _link_record_ids(self, result: AssemblyResult) -> None:
+        """
+        Link record IDs across the hierarchy.
+
+        Hierarchy: Sample -> Environment -> Reflectivity (measurement)
+        - Environment gets sample_id
+        - Reflectivity gets environment_id and sample_id
+        - Environment tracks measurement_ids
+        - Sample tracks environment_ids
+        """
+        sample_id = result.sample["id"] if result.sample else None
+        environment_id = result.environment["id"] if result.environment else None
+        reflectivity_id = result.reflectivity["id"] if result.reflectivity else None
+
+        # Link environment to sample
+        if result.environment:
+            result.environment["sample_id"] = sample_id
+
+        # Link reflectivity to environment and sample
+        if result.reflectivity:
+            result.reflectivity["environment_id"] = environment_id
+            result.reflectivity["sample_id"] = sample_id
+
+        # Track measurement IDs in environment
+        if result.environment and reflectivity_id:
+            result.environment["measurement_ids"] = [reflectivity_id]
+
+        # Track environment IDs in sample
+        if result.sample and environment_id:
+            result.sample["environment_ids"] = [environment_id]
