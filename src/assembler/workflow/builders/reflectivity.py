@@ -2,7 +2,6 @@
 Reflectivity record builder.
 """
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -86,18 +85,6 @@ def build_reflectivity_record(
 
         logger.debug(f"Using instrument handler: {instrument_handler.name}")
 
-        # Build reduction parameters dict if any are set
-        reduction_parameters = None
-        if any([reduced.q_summing, reduced.tof_weighted, reduced.bck_in_q, reduced.theta_offset]):
-            reduction_parameters = json.dumps(
-                {
-                    "q_summing": reduced.q_summing,
-                    "tof_weighted": reduced.tof_weighted,
-                    "bck_in_q": reduced.bck_in_q,
-                    "theta_offset": reduced.theta_offset,
-                }
-            )
-
         # Get measurement geometry from first run if available
         measurement_geometry = None
         if reduced.runs:
@@ -130,7 +117,6 @@ def build_reflectivity_record(
                 "measurement_geometry": measurement_geometry,
                 "reduction_time": reduced.reduction_time,
                 "reduction_version": reduced.reduction_version,
-                "reduction_parameters": reduction_parameters,
                 "q": reduced.q,
                 "r": reduced.r,
                 "dr": reduced.dr,

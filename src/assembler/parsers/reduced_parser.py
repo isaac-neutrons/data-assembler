@@ -18,15 +18,7 @@ from dateutil import parser as date_parser
 class ReductionRun:
     """Information about a single data run in the reduction."""
 
-    data_run: int
-    norm_run: int
     two_theta: float
-    lambda_min: float
-    lambda_max: float
-    q_min: float
-    q_max: float
-    sf_a: float
-    sf_b: float
 
 
 @dataclass
@@ -47,12 +39,6 @@ class ReducedData:
     run_title: Optional[str] = None
     run_start_time: Optional[datetime] = None
     reduction_time: Optional[datetime] = None
-
-    # Reduction parameters
-    q_summing: Optional[bool] = None
-    tof_weighted: Optional[bool] = None
-    bck_in_q: Optional[bool] = None
-    theta_offset: Optional[float] = None
 
     # Run info (for multi-angle datasets)
     runs: list[ReductionRun] = field(default_factory=list)
@@ -108,16 +94,11 @@ class ReducedParser:
         "run_title": re.compile(r"Run title:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
         "run_start": re.compile(r"Run start time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
         "reduction_time": re.compile(r"Reduction time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
-        "q_summing": re.compile(r"Q summing:\s*(True|False)", re.IGNORECASE),
-        "tof_weighted": re.compile(r"TOF weighted:\s*(True|False)", re.IGNORECASE),
-        "bck_in_q": re.compile(r"Bck in Q:\s*(True|False)", re.IGNORECASE),
-        "theta_offset": re.compile(r"Theta offset:\s*([\d.eE+-]+)", re.IGNORECASE),
     }
 
-    # Pattern for run info table
+    # Pattern for run info table - extracts two_theta (3rd column)
     RUN_TABLE_PATTERN = re.compile(
-        r"^\s*(\d+)\s+(\d+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+"
-        r"([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)",
+        r"^\s*\d+\s+\d+\s+([\d.eE+-]+)",
         re.MULTILINE,
     )
 
@@ -225,37 +206,11 @@ class ReducedParser:
             except (ValueError, TypeError):
                 pass
 
-        # Extract boolean parameters
-        match = self.PATTERNS["q_summing"].search(full_header)
-        if match:
-            result.q_summing = match.group(1).lower() == "true"
-
-        match = self.PATTERNS["tof_weighted"].search(full_header)
-        if match:
-            result.tof_weighted = match.group(1).lower() == "true"
-
-        match = self.PATTERNS["bck_in_q"].search(full_header)
-        if match:
-            result.bck_in_q = match.group(1).lower() == "true"
-
-        # Extract theta offset
-        match = self.PATTERNS["theta_offset"].search(full_header)
-        if match:
-            result.theta_offset = float(match.group(1))
-
-        # Extract run info table
+        # Extract run info table (two_theta values)
         for match in self.RUN_TABLE_PATTERN.finditer(full_header):
             result.runs.append(
                 ReductionRun(
-                    data_run=int(match.group(1)),
-                    norm_run=int(match.group(2)),
-                    two_theta=float(match.group(3)),
-                    lambda_min=float(match.group(4)),
-                    lambda_max=float(match.group(5)),
-                    q_min=float(match.group(6)),
-                    q_max=float(match.group(7)),
-                    sf_a=float(match.group(8)),
-                    sf_b=float(match.group(9)),
+                    two_theta=float(match.group(1)),
                 )
             )
 

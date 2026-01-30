@@ -160,6 +160,7 @@ class TestFullWorkflowWithRealData:
         assert table.num_rows == 1
         assert table.column("run_number")[0].as_py() == "218386"
 
-        # Check Q data was preserved
-        q_data = table.column("q")[0].as_py()
+        # Check Q data was preserved (inside reflectivity struct)
+        refl_struct = table.column("reflectivity")[0].as_py()
+        q_data = refl_struct["q"]
         assert len(q_data) > 100, "Expected many Q points from real data"

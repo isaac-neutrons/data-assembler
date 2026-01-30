@@ -99,71 +99,18 @@ class ModelLayer:
 
 
 @dataclass
-class FitParameter:
-    """A fitted parameter from the model."""
-
-    id: str
-    name: str
-    value: float
-    fixed: bool
-    bounds: Optional[tuple[float, float]] = None
-
-    @classmethod
-    def from_json(cls, param_id: str, data: dict) -> "FitParameter":
-        """Create from JSON reference data."""
-        name = data.get("name", param_id)
-        fixed = data.get("fixed", True)
-
-        # Extract value from slot
-        slot = data.get("slot", {})
-        if isinstance(slot, dict):
-            value = slot.get("value", 0.0)
-        else:
-            value = 0.0
-
-        # Extract bounds
-        bounds_data = data.get("bounds")
-        bounds = None
-        if bounds_data and isinstance(bounds_data, list) and len(bounds_data) == 2:
-            bounds = (float(bounds_data[0]), float(bounds_data[1]))
-
-        return cls(
-            id=param_id,
-            name=name,
-            value=float(value) if value is not None else 0.0,
-            fixed=fixed,
-            bounds=bounds,
-        )
-
-
-@dataclass
 class ModelData:
     """
     Complete parsed data from a refl1d/bumps model JSON file.
 
-    Contains the layer structure, materials, fit parameters,
-    and probe data.
+    Contains the layer structure and materials.
     """
 
     # File info
     file_path: str
-    schema_version: Optional[str] = None
 
     # Layer stack (top to bottom)
     layers: list[ModelLayer] = field(default_factory=list)
-
-    # Fit parameters
-    parameters: list[FitParameter] = field(default_factory=list)
-
-    # Probe data (if present)
-    q: list[float] = field(default_factory=list)
-    r: list[float] = field(default_factory=list)
-    dr: list[float] = field(default_factory=list)
-    dq: list[float] = field(default_factory=list)
-
-    # Experiment metadata
-    intensity: Optional[float] = None
-    background: Optional[float] = None
 
     @property
     def num_layers(self) -> int:
@@ -203,13 +150,6 @@ class ModelData:
         for layer in self.layers:
             if layer.name.lower() == name.lower():
                 return layer
-        return None
-
-    def get_parameter_by_name(self, name: str) -> Optional[FitParameter]:
-        """Find a parameter by name."""
-        for param in self.parameters:
-            if name.lower() in param.name.lower():
-                return param
         return None
 
 
@@ -269,16 +209,8 @@ class ModelParser:
         """
         result = ModelData(file_path=file_path)
 
-        # Get schema version
-        result.schema_version = data.get("$schema")
-
         # Get references dictionary (for resolving parameter values)
         references = data.get("references", {})
-
-        # Parse fit parameters from references
-        for param_id, param_data in references.items():
-            if param_data.get("__class__") == "bumps.parameter.Parameter":
-                result.parameters.append(FitParameter.from_json(param_id, param_data))
 
         # Navigate to the experiment/sample structure
         obj = data.get("object", {})
@@ -290,34 +222,7 @@ class ModelParser:
             layer = ModelLayer.from_json(layer_data, references)
             result.layers.append(layer)
 
-        # Parse probe data
-        probe = obj.get("probe", {})
-        result.q = self._extract_numpy_array(probe.get("Q", {}))
-        result.r = self._extract_numpy_array(probe.get("R", {}))
-        result.dr = self._extract_numpy_array(probe.get("dR", {}))
-        result.dq = self._extract_numpy_array(probe.get("dQ", {}))
-
-        # Parse intensity and background
-        result.intensity = ModelMaterial._resolve_parameter(probe.get("intensity"), references)
-        result.background = ModelMaterial._resolve_parameter(probe.get("background"), references)
-
         return result
-
-    def _extract_numpy_array(self, array_data: Any) -> list[float]:
-        """Extract values from a bumps NumpyArray structure."""
-        if not array_data:
-            return []
-
-        if isinstance(array_data, list):
-            return [float(v) for v in array_data]
-
-        if isinstance(array_data, dict):
-            # Handle bumps.util.NumpyArray format
-            values = array_data.get("values", [])
-            if values:
-                return [float(v) for v in values]
-
-        return []
 
 
 def extract_layers_for_sample(model: ModelData) -> list[dict]:

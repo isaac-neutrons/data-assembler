@@ -147,7 +147,6 @@ class TestModelParser:
         parser = ModelParser()
         data = parser.parse_dict(sample_model_json)
         
-        assert data.schema_version == "bumps-draft-03"
         assert len(data.layers) == 3
         assert data.layers[0].name == "air"
         assert data.layers[1].name == "film"
@@ -183,15 +182,6 @@ class TestModelParser:
         assert data.ambient.name == "air"
         assert len(data.film_layers) == 1
         assert data.total_thickness == pytest.approx(100.0)
-    
-    def test_probe_data(self, sample_model_json):
-        """Test probe data extraction."""
-        parser = ModelParser()
-        data = parser.parse_dict(sample_model_json)
-        
-        assert len(data.q) == 3
-        assert len(data.r) == 3
-        assert data.q[0] == pytest.approx(0.01)
 
 
 class TestParquetParser:

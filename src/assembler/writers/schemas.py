@@ -38,7 +38,6 @@ REFLECTIVITY_SCHEMA = pa.schema(
                     ("measurement_geometry", pa.float64()),
                     ("reduction_time", pa.timestamp("us", tz="UTC")),
                     ("reduction_version", pa.string()),
-                    ("reduction_parameters", pa.string()),  # JSON string
                     ("q", pa.list_(pa.float64())),
                     ("r", pa.list_(pa.float64())),
                     ("dr", pa.list_(pa.float64())),
