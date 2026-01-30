@@ -92,6 +92,7 @@ class DataAssembler:
                 warnings=result.warnings,
                 errors=result.errors,
                 needs_review=result.needs_review,
+                model=model,
             )
             result.parquet_dir = parquet.directory_path if hasattr(parquet, 'directory_path') else None
 

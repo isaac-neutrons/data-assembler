@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Type
 
 from assembler.instruments import Instrument, InstrumentRegistry
+from assembler.parsers.model_parser import ModelData
 from assembler.parsers.parquet_parser import ParquetData
-from assembler.workflow.builders.utils import generate_environment_description
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def build_environment_record(
     errors: list[str],
     needs_review: dict[str, Any],
     instrument_handler: Optional[Type[Instrument]] = None,
+    model: Optional[ModelData] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build an environment record from parquet daslogs.
@@ -33,6 +34,7 @@ def build_environment_record(
         errors: List to append errors to
         needs_review: Dict to record fields needing review
         instrument_handler: Optional specific instrument handler to use
+        model: Optional model data for ambient medium extraction
 
     Returns:
         Dict matching ENVIRONMENT_SCHEMA, or None on error
@@ -52,19 +54,13 @@ def build_environment_record(
         if metadata.extra:
             logger.debug(f"Instrument metadata: {metadata.extra}")
 
-        # Generate description
-        if extracted.description:
-            description = extracted.description
-        else:
-            description = generate_environment_description(
-                temperature=extracted.temperature,
-                pressure=extracted.pressure,
-                sample_name=parquet.sample.name if parquet.sample else None,
-            )
+        # Use instrument default for description
+        description = instrument_handler.defaults.environment_description
 
-        # Default to "Sample cell" if no meaningful description
-        if not description or description == "Standard conditions":
-            description = "Sample cell"
+        # Extract ambient medium from model data if available
+        ambient_medium = None
+        if model and model.ambient:
+            ambient_medium = model.ambient.material.name
 
         # Build the record matching ENVIRONMENT_SCHEMA
         record = {
@@ -76,7 +72,7 @@ def build_environment_record(
             "sample_id": None,
             # Environment fields
             "description": description,
-            "ambient_medium": None,  # Would need material extraction
+            "ambient_medium": ambient_medium,
             "temperature": extracted.temperature,
             "pressure": extracted.pressure,
             "relative_humidity": extracted.relative_humidity,

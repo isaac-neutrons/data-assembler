@@ -364,7 +364,7 @@ def _write_debug_json(
         if isinstance(v, list):
             if len(v) == 0:
                 return {"_value": [], "_status": "EMPTY_LIST"}
-            # For large arrays, summarize
+            # For large numeric arrays, summarize
             if len(v) > 10 and all(isinstance(x, (int, float)) for x in v):
                 return {
                     "_type": "array",
@@ -375,6 +375,9 @@ def _write_debug_json(
                     "_status": "OK",
                 }
             return v
+        if isinstance(v, dict):
+            # Recursively serialize dict values
+            return {k: serialize_value(val, k) for k, val in v.items()}
         if hasattr(v, "model_dump"):
             return _model_to_debug_dict(v)
         return v
