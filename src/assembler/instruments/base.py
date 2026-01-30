@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional, Type
+from typing import Optional, Type
 
 from assembler.parsers.parquet_parser import ParquetData
 
@@ -32,26 +32,9 @@ class ExtractedEnvironment:
     """Environment data extracted by instrument handler."""
 
     temperature: Optional[float] = None
-    temperature_min: Optional[float] = None
-    temperature_max: Optional[float] = None
     pressure: Optional[float] = None
-    magnetic_field: Optional[float] = None
     relative_humidity: Optional[float] = None
     description: Optional[str] = None
-    source_logs: Optional[list[str]] = None
-
-
-@dataclass
-class ExtractedMetadata:
-    """Additional metadata extracted by instrument handler."""
-
-    sample_position: Optional[str] = None
-    operating_mode: Optional[str] = None
-    slit_widths: Optional[dict[str, float]] = None
-    detector_distance: Optional[float] = None
-    wavelength: Optional[float] = None
-    frequency: Optional[float] = None
-    extra: Optional[dict[str, Any]] = None
 
 
 class Instrument(ABC):
@@ -111,24 +94,6 @@ class Instrument(ABC):
         pass
 
     @classmethod
-    def extract_metadata(
-        cls,
-        parquet: ParquetData,
-    ) -> ExtractedMetadata:
-        """
-        Extract additional instrument-specific metadata.
-
-        Override in subclasses for instrument-specific extraction.
-
-        Args:
-            parquet: Parsed parquet data with DAS logs
-
-        Returns:
-            ExtractedMetadata with available values
-        """
-        return ExtractedMetadata()
-
-    @classmethod
     def get_daslog_value(
         cls,
         parquet: ParquetData,
@@ -156,51 +121,6 @@ class Instrument(ABC):
                 if log.value_numeric is not None:
                     return log.value_numeric
         return None
-
-    @classmethod
-    def get_daslog_string(
-        cls,
-        parquet: ParquetData,
-        log_names: list[str],
-    ) -> Optional[str]:
-        """
-        Get a string value from DAS logs.
-
-        Args:
-            parquet: Parsed parquet data
-            log_names: List of possible log names to try
-
-        Returns:
-            The first found string value, or None
-        """
-        for name in log_names:
-            if name in parquet.daslogs:
-                log = parquet.daslogs[name]
-                if log.value:
-                    return log.value
-        return None
-
-    @classmethod
-    def validate_data(
-        cls,
-        reflectivity: Optional[dict[str, Any]] = None,
-        sample: Optional[dict[str, Any]] = None,
-        environment: Optional[dict[str, Any]] = None,
-    ) -> list[str]:
-        """
-        Perform instrument-specific validation.
-
-        Override in subclasses for specific validation rules.
-
-        Args:
-            reflectivity: The reflectivity record dict
-            sample: The sample record dict
-            environment: The environment record dict
-
-        Returns:
-            List of warning/error messages
-        """
-        return []
 
 
 class InstrumentRegistry:

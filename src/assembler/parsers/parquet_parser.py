@@ -88,21 +88,6 @@ class ParquetData:
             return self.metadata.experiment_identifier
         return None
 
-    def get_daslog_summary(self, log_name: str) -> Optional[dict]:
-        """
-        Get summary statistics for a DAS log.
-
-        Returns dict with average_value, min_value, max_value.
-        """
-        if log_name in self.daslogs:
-            log = self.daslogs[log_name]
-            return {
-                "average_value": log.average_value,
-                "min_value": log.min_value,
-                "max_value": log.max_value,
-            }
-        return None
-
 
 class ParquetParser:
     """

@@ -49,11 +49,6 @@ def build_environment_record(
         # Extract environment using instrument-specific logic
         extracted = instrument_handler.extract_environment(parquet)
 
-        # Also extract additional metadata for logging
-        metadata = instrument_handler.extract_metadata(parquet)
-        if metadata.extra:
-            logger.debug(f"Instrument metadata: {metadata.extra}")
-
         # Use instrument default for description
         description = instrument_handler.defaults.environment_description
 

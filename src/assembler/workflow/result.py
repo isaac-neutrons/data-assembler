@@ -55,16 +55,6 @@ class AssemblyResult:
         return len(self.errors) > 0
 
     @property
-    def has_sample(self) -> bool:
-        """Check if sample was assembled."""
-        return self.sample is not None
-
-    @property
-    def has_environment(self) -> bool:
-        """Check if environment was assembled."""
-        return self.environment is not None
-
-    @property
     def needs_human_review(self) -> bool:
         """Check if any fields need human review."""
         return len(self.needs_review) > 0

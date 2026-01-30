@@ -22,7 +22,6 @@ PATTERNS = {
     "ipts_from_content": re.compile(r"IPTS[- ]?(\d+)", re.IGNORECASE),
     # Instrument patterns
     "instrument_ref_l": re.compile(r"REF[_-]?L", re.IGNORECASE),
-    "instrument_ref_m": re.compile(r"REF[_-]?M", re.IGNORECASE),
 }
 
 
@@ -202,8 +201,6 @@ def extract_instrument(file_path: str | Path) -> Optional[str]:
 
     if PATTERNS["instrument_ref_l"].search(path_str):
         return "REF_L"
-    if PATTERNS["instrument_ref_m"].search(path_str):
-        return "REF_M"
 
     return None
 
