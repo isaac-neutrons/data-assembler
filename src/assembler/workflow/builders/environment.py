@@ -21,6 +21,7 @@ def build_environment_record(
     needs_review: dict[str, Any],
     instrument_handler: Optional[Type[Instrument]] = None,
     model: Optional[ModelData] = None,
+    description_override: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build an environment record from parquet daslogs.
@@ -35,6 +36,7 @@ def build_environment_record(
         needs_review: Dict to record fields needing review
         instrument_handler: Optional specific instrument handler to use
         model: Optional model data for ambient medium extraction
+        description_override: Optional text to use as the environment description
 
     Returns:
         Dict matching ENVIRONMENT_SCHEMA, or None on error
@@ -49,8 +51,8 @@ def build_environment_record(
         # Extract environment using instrument-specific logic
         extracted = instrument_handler.extract_environment(parquet)
 
-        # Use instrument default for description
-        description = instrument_handler.defaults.environment_description
+        # Use CLI override, or fall back to instrument default
+        description = description_override or instrument_handler.defaults.environment_description
 
         # Extract ambient medium from model data if available
         ambient_medium = None
@@ -70,6 +72,7 @@ def build_environment_record(
             "ambient_medium": ambient_medium,
             "temperature": extracted.temperature,
             "pressure": extracted.pressure,
+            "potential": None,
             "relative_humidity": extracted.relative_humidity,
             "measurement_ids": [],
         }

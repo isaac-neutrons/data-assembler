@@ -23,6 +23,14 @@ data-assembler ingest \
     -m ~/data/model.json \
     -o ~/output/
 
+# With environment description and JSON output
+data-assembler ingest \
+    -r ~/data/reduced.txt \
+    -p ~/data/parquet/ \
+    -m ~/data/corefine-model.json \
+    -e "Electrochemical cell, THF electrolyte, steady-state OCV" \
+    -o ~/output/ --json
+
 # Dry run (parse and validate without writing)
 data-assembler ingest -r data.txt -o output/ --dry-run
 
@@ -54,6 +62,8 @@ data-assembler ingest [OPTIONS]
 |--------|-------------|
 | `-p, --parquet PATH` | Directory containing parquet files from nexus-processor |
 | `-m, --model PATH` | Path to refl1d/bumps model JSON file |
+| `--model-dataset-index N` | 1-based index of the dataset in a co-refinement model. If omitted, auto-detected by matching reflectivity data. |
+| `-e, --environment TEXT` | Description text for the environment record (e.g. `'Sample cell, flowing N2'`) |
 | `--dry-run` | Parse and assemble but don't write output |
 | `--json` | Also write JSON files (in addition to Parquet) |
 | `--debug` | Write debug JSON with full schema and missing fields |
@@ -67,11 +77,21 @@ data-assembler ingest -r reduced.txt -o output/
 # With parquet metadata (adds environment conditions from DAS logs)
 data-assembler ingest -r reduced.txt -p parquet_dir/ -o output/
 
-# With model (adds sample layer structure)
+# With model (adds sample layer structure and reflectivity model record)
 data-assembler ingest -r reduced.txt -m model.json -o output/
 
 # Full pipeline with all sources
 data-assembler ingest -r reduced.txt -p parquet_dir/ -m model.json -o output/ --json
+
+# Co-refinement model: explicitly select dataset 2
+data-assembler ingest -r reduced.txt -m corefine.json --model-dataset-index 2 -o output/
+
+# Co-refinement model: auto-detect dataset by matching R values
+data-assembler ingest -r reduced.txt -m corefine.json -o output/
+
+# Override the environment description
+data-assembler ingest -r reduced.txt -p parquet_dir/ \
+    -e "Electrochemical cell, THF electrolyte" -o output/
 ```
 
 ---
@@ -131,19 +151,47 @@ data-assembler find --run 218386 --search-path ~/data/ --json
 
 ### Parquet Files
 
-Output is partitioned for Iceberg ingestion:
+Output is organized for Iceberg ingestion:
 
 ```
 output/
 ├── reflectivity/
 │   └── facility=SNS/
-│       └── proposal=IPTS-12345/
-│           └── data.parquet
+│       └── year=2025/
+│           └── 218386.parquet
 ├── sample/
-│   └── data.parquet
-└── environment/
-    └── data.parquet
+│   └── <uuid>.parquet
+├── environment/
+│   └── <uuid>.parquet
+├── reflectivity_model/          # Only when --model is provided
+│   └── <uuid>.parquet
+└── json/                        # Only with --json flag
+    ├── reflectivity.json
+    ├── sample.json
+    ├── environment.json
+    └── reflectivity_model.json
 ```
+
+### Tables
+
+| Table | Description | Key Fields |
+|-------|-------------|------------|
+| **reflectivity** | Measurement data | Q, R, dR, dQ arrays; run metadata; facility partitioning |
+| **sample** | Sample description | Layer stack, composition, geometry |
+| **environment** | Measurement conditions | Temperature, pressure, potential, humidity, description |
+| **reflectivity_model** | Fit model from refl1d/bumps | Layer parameters, software provenance, dataset index, full JSON |
+
+### Co-Refinement Models
+
+Model JSON files from refl1d/bumps may contain multiple co-refined datasets
+(experiments). The assembler handles this by:
+
+1. **Explicit selection** — pass `--model-dataset-index N` (1-based) to pick a specific dataset.
+2. **Auto-detection** — when no index is given, the assembler interpolates each experiment's
+   probe R values onto the reduced Q grid and selects the best match by mean relative error.
+
+The selected `dataset_index` (0-based) is recorded in the `reflectivity_model` table
+for traceability.
 
 ### Debug Output
 
@@ -163,11 +211,16 @@ from assembler.writers import ParquetWriter
 # Parse input files
 reduced = ReducedParser().parse("reduced.txt")
 parquet = ParquetParser().parse_directory("parquet/", run_number=218386)
-model = ModelParser().parse("model.json")
+model = ModelParser().parse("model.json", dataset_index=0)  # 0-based index, or omit for auto
 
 # Assemble into unified schema
 assembler = DataAssembler()
-result = assembler.assemble(reduced=reduced, parquet=parquet, model=model)
+result = assembler.assemble(
+    reduced=reduced,
+    parquet=parquet,
+    model=model,
+    environment_description="Electrochemical cell, THF electrolyte",
+)
 
 # Check result
 print(result.summary())

@@ -208,6 +208,20 @@ def find(
     help="Path to refl1d/bumps model JSON file",
 )
 @click.option(
+    "--model-dataset-index",
+    type=int,
+    default=None,
+    help="1-based index of the dataset in a co-refinement model file. "
+    "If omitted, auto-detected by matching Q ranges against the reduced data.",
+)
+@click.option(
+    "--environment",
+    "-e",
+    type=str,
+    default=None,
+    help="Description text for the environment record (e.g. 'Sample cell, flowing N2').",
+)
+@click.option(
     "--output",
     "-o",
     required=True,
@@ -230,6 +244,8 @@ def ingest(
     reduced: str,
     parquet: Optional[str],
     model: Optional[str],
+    model_dataset_index: Optional[int],
+    environment: Optional[str],
     output: str,
     dry_run: bool,
     as_json: bool,
@@ -267,15 +283,22 @@ def ingest(
     if model:
         logger.info(f"Parsing model file: {model}")
         model_parser = ModelParser()
+        # Convert 1-based CLI index to 0-based internal index
+        ds_index = (model_dataset_index - 1) if model_dataset_index is not None else None
         try:
-            model_data = model_parser.parse(model)
+            model_data = model_parser.parse(model, dataset_index=ds_index)
         except Exception as e:
             raise click.ClickException(f"Error parsing model file: {e}")
 
     # Assemble
     logger.info("Assembling data...")
     assembler = DataAssembler()
-    result = assembler.assemble(reduced=reduced_data, parquet=parquet_data, model=model_data)
+    result = assembler.assemble(
+        reduced=reduced_data,
+        parquet=parquet_data,
+        model=model_data,
+        environment_description=environment,
+    )
 
     if result.has_errors:
         click.echo(click.style("Assembly errors:", fg="red"), err=True)
@@ -488,6 +511,12 @@ def _write_debug_json(
                 "_status": "NOT_ASSEMBLED",
                 "_note": "Environment model was not created",
             },
+            "reflectivity_model": _model_to_debug_dict(result.reflectivity_model)
+            if result.reflectivity_model
+            else {
+                "_status": "NOT_ASSEMBLED",
+                "_note": "Reflectivity model was not created (requires --model file)",
+            },
         },
         "assembly_errors": result.errors if result.errors else [],
         "assembly_warnings": result.warnings if result.warnings else [],
@@ -521,7 +550,7 @@ def _write_debug_json(
         return populated, missing, missing_fields
 
     coverage = {}
-    for section in ["reflectivity", "sample", "environment"]:
+    for section in ["reflectivity", "sample", "environment", "reflectivity_model"]:
         data = debug_output["assembled_data"].get(section, {})
         if isinstance(data, dict) and data.get("_status") not in ["NOT_ASSEMBLED", "MISSING"]:
             p, m, mf = count_fields(data)
@@ -576,8 +605,27 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
         temp = e.get("temperature")
         if temp:
             click.echo(f"    Temperature: {temp:.1f} K")
+        potential = e.get("potential")
+        if potential is not None:
+            click.echo(f"    Potential: {potential} V")
     else:
         click.echo("  Environment: Not assembled")
+
+    if result.reflectivity_model:
+        rm = result.reflectivity_model
+        click.echo(f"  Reflectivity Model: {rm.get('model_name', 'Unknown')}")
+        click.echo(
+            f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}"
+        )
+        click.echo(f"    Experiments: {rm.get('num_experiments', 0)}")
+        click.echo(
+            f"    Parameters: {rm.get('num_free_parameters', 0)} free / "
+            f"{rm.get('num_parameters', 0)} total"
+        )
+        model_layers = rm.get("layers", [])
+        click.echo(f"    Layers: {len(model_layers)}")
+    else:
+        click.echo("  Reflectivity Model: Not assembled")
 
 
 def app(args: Optional[list[str]] = None) -> int:

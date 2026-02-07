@@ -98,6 +98,23 @@ class JSONWriter:
 
         return output_path
 
+    def write_reflectivity_model(self, record: dict[str, Any]) -> Path:
+        """
+        Write a reflectivity model record to JSON.
+
+        Args:
+            record: The reflectivity model record dict
+
+        Returns:
+            Path to the written JSON file
+        """
+        output_path = self.output_dir / "reflectivity_model.json"
+
+        with open(output_path, "w") as f:
+            json.dump(record, f, cls=JSONEncoder, indent=2)
+
+        return output_path
+
     def write_all(self, result: AssemblyResult) -> dict[str, Path]:
         """
         Write all assembled data to JSON files.
@@ -118,6 +135,11 @@ class JSONWriter:
 
         if result.environment:
             paths["environment"] = self.write_environment(result.environment)
+
+        if result.reflectivity_model:
+            paths["reflectivity_model"] = self.write_reflectivity_model(
+                result.reflectivity_model
+            )
 
         return paths
 

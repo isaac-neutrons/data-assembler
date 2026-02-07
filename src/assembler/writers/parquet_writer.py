@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .schemas import ENVIRONMENT_SCHEMA, REFLECTIVITY_SCHEMA, SAMPLE_SCHEMA
+from .schemas import (
+    ENVIRONMENT_SCHEMA,
+    REFLECTIVITY_MODEL_SCHEMA,
+    REFLECTIVITY_SCHEMA,
+    SAMPLE_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from assembler.workflow import AssemblyResult
@@ -127,6 +132,8 @@ class ParquetWriter:
             return self.write_sample(data)
         elif table_type == "environment":
             return self.write_environment(data)
+        elif table_type == "reflectivity_model":
+            return self.write_reflectivity_model(data)
         else:
             raise ValueError(f"Unknown table type: {table_type}")
 
@@ -158,6 +165,10 @@ class ParquetWriter:
         if result.environment:
             path = self.write_environment(result.environment)
             paths["environment"] = str(path)
+
+        if result.reflectivity_model:
+            path = self.write_reflectivity_model(result.reflectivity_model)
+            paths["reflectivity_model"] = str(path)
 
         return paths
 
@@ -246,6 +257,30 @@ class ParquetWriter:
         pq.write_table(table, output_path)
         return output_path
 
+    def write_reflectivity_model(self, record: dict[str, Any]) -> Path:
+        """
+        Write a reflectivity model record to Parquet.
+
+        Reflectivity models are not partitioned (relatively small dataset).
+
+        Args:
+            record: The model record dict matching REFLECTIVITY_MODEL_SCHEMA
+
+        Returns:
+            Path to the written file
+        """
+        table = pa.Table.from_pylist([record], schema=REFLECTIVITY_MODEL_SCHEMA)
+
+        partition_dir = self._get_partition_path("reflectivity_model")
+        partition_dir.mkdir(parents=True, exist_ok=True)
+
+        model_id = record.get("id") or "unknown"
+        filename = f"{model_id}.parquet"
+        output_path = partition_dir / filename
+
+        pq.write_table(table, output_path)
+        return output_path
+
     def write_batch(
         self,
         records: list[dict[str, Any]],
@@ -296,5 +331,8 @@ def write_assembly_to_parquet(result: AssemblyResult, output_dir: str | Path) ->
 
     if result.environment:
         paths["environment"] = writer.write_environment(result.environment)
+
+    if result.reflectivity_model:
+        paths["reflectivity_model"] = writer.write_reflectivity_model(result.reflectivity_model)
 
     return paths

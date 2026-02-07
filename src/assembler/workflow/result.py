@@ -19,6 +19,7 @@ class AssemblyResult:
         reflectivity: The assembled reflectivity record (dict matching REFLECTIVITY_SCHEMA)
         sample: The assembled sample record (dict matching SAMPLE_SCHEMA)
         environment: The assembled environment record (dict matching ENVIRONMENT_SCHEMA)
+        reflectivity_model: The assembled model record (dict matching REFLECTIVITY_MODEL_SCHEMA)
         reduced_file: Path to source reduced data file
         parquet_dir: Path to source parquet directory
         model_file: Path to source model JSON file
@@ -31,6 +32,7 @@ class AssemblyResult:
     reflectivity: Optional[dict[str, Any]] = None
     sample: Optional[dict[str, Any]] = None
     environment: Optional[dict[str, Any]] = None
+    reflectivity_model: Optional[dict[str, Any]] = None
 
     # Source files used
     reduced_file: Optional[str] = None
@@ -89,6 +91,16 @@ class AssemblyResult:
                 lines.append(f"    Temperature: {temp:.1f} K")
         else:
             lines.append("  Environment: Not assembled")
+
+        if self.reflectivity_model:
+            rm = self.reflectivity_model
+            lines.append(f"  Reflectivity Model: {rm.get('model_name', 'Unknown')}")
+            lines.append(f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}")
+            lines.append(f"    Experiments: {rm.get('num_experiments', 0)}")
+            model_layers = rm.get('layers', [])
+            lines.append(f"    Layers: {len(model_layers)}")
+        else:
+            lines.append("  Reflectivity Model: Not assembled")
 
         if self.warnings:
             lines.append(f"\nWarnings ({len(self.warnings)}):")
