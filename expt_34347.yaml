@@ -1,0 +1,22 @@
+title: "IPTS-34347 Cu/THF non-aqueous experiment"
+
+sample:
+  description: "Cu in THF on Si"
+  model: /home/mat/data/expt11-refl1d-v2/Cu-THF-corefine-expt11-local.json
+  model_dataset_index: 1
+
+output: ./output
+
+measurements:
+  - name: "Steady-state OCV"
+    reduced: /home/mat/data/REFL_218386_reduced_data.txt
+    parquet: /home/mat/data/isaac/expt11/parquet/
+    model: /home/mat/data/expt11-refl1d-v2/Cu-THF-corefine-expt11-local.json
+    model_dataset_index: 1
+    environment: "Electrochemical cell, THF electrolyte, steady-state OCV"
+
+  - name: "Final OCV"
+    reduced: /home/mat/data/REFL_218393_combined_data_auto.txt
+    model: /home/mat/data/expt11-refl1d-v2/Cu-THF-corefine-expt11-local.json
+    model_dataset_index: 2
+    environment: "Electrochemical cell, THF electrolyte, final OCV"
