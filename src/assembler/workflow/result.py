@@ -34,6 +34,9 @@ class AssemblyResult:
     environment: Optional[dict[str, Any]] = None
     reflectivity_model: Optional[dict[str, Any]] = None
 
+    # External references (for linking to existing records)
+    external_sample_id: Optional[str] = None
+
     # Source files used
     reduced_file: Optional[str] = None
     parquet_dir: Optional[str] = None

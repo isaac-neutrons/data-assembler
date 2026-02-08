@@ -10,9 +10,11 @@ from pathlib import Path
 from assembler.parsers import (
     ReducedParser,
     ModelParser,
+    ManifestParser,
 )
 from assembler.parsers.reduced_parser import ReducedData, extract_run_number_from_filename
 from assembler.parsers.model_parser import ModelData, ModelLayer
+from assembler.parsers.manifest_parser import Manifest, ManifestSample, ManifestMeasurement
 
 
 class TestReducedParser:
@@ -193,6 +195,240 @@ class TestParquetParser:
         from assembler.parsers.parquet_parser import ParquetData
         assert ParquetParser is not None
         assert ParquetData is not None
+
+
+class TestManifestParser:
+    """Tests for the YAML manifest parser."""
+
+    @pytest.fixture
+    def minimal_manifest_data(self):
+        """Minimal valid manifest data as a dict."""
+        return {
+            "output": "/tmp/test_output",
+            "measurements": [
+                {
+                    "name": "First measurement",
+                    "reduced": "/some/path/REFL_218386_reduced.txt",
+                },
+            ],
+        }
+
+    @pytest.fixture
+    def full_manifest_data(self, tmp_path):
+        """Full manifest data with all fields populated."""
+        # Create real files so validation passes
+        reduced1 = tmp_path / "REFL_218386_reduced.txt"
+        reduced1.write_text("0.01 1.0 0.1 0.001\n")
+        reduced2 = tmp_path / "REFL_218393_reduced.txt"
+        reduced2.write_text("0.01 1.0 0.1 0.001\n")
+        model = tmp_path / "model.json"
+        model.write_text("{}")
+        parquet_dir = tmp_path / "parquet"
+        parquet_dir.mkdir()
+
+        return {
+            "title": "IPTS-34347 Cu/THF experiment",
+            "sample": {
+                "description": "Cu in THF on Si",
+                "model": str(model),
+                "model_dataset_index": 1,
+            },
+            "output": str(tmp_path / "output"),
+            "measurements": [
+                {
+                    "name": "Steady-state OCV",
+                    "reduced": str(reduced1),
+                    "parquet": str(parquet_dir),
+                    "model_dataset_index": 1,
+                    "environment": "Cell, THF, steady-state OCV",
+                },
+                {
+                    "name": "Final OCV",
+                    "reduced": str(reduced2),
+                    "model_dataset_index": 2,
+                    "environment": "Cell, THF, final OCV",
+                },
+            ],
+        }
+
+    def test_parse_dict_minimal(self, minimal_manifest_data):
+        """Test parsing a minimal manifest dict."""
+        parser = ManifestParser()
+        manifest = parser.parse_dict(minimal_manifest_data)
+
+        assert manifest.output == "/tmp/test_output"
+        assert len(manifest.measurements) == 1
+        assert manifest.measurements[0].name == "First measurement"
+        assert manifest.title is None
+
+    def test_parse_dict_full(self, full_manifest_data):
+        """Test parsing a fully populated manifest dict."""
+        parser = ManifestParser()
+        manifest = parser.parse_dict(full_manifest_data)
+
+        assert manifest.title == "IPTS-34347 Cu/THF experiment"
+        assert manifest.sample.description == "Cu in THF on Si"
+        assert manifest.sample.model_dataset_index == 1
+        assert len(manifest.measurements) == 2
+
+        m1, m2 = manifest.measurements
+        assert m1.name == "Steady-state OCV"
+        assert m1.model_dataset_index == 1
+        assert m1.environment == "Cell, THF, steady-state OCV"
+        assert m1.parquet is not None
+        assert m2.name == "Final OCV"
+        assert m2.model_dataset_index == 2
+        assert m2.parquet is None
+
+    def test_parse_yaml_file(self, full_manifest_data, tmp_path):
+        """Test parsing from a YAML file on disk."""
+        import yaml
+
+        manifest_file = tmp_path / "manifest.yaml"
+        manifest_file.write_text(yaml.dump(full_manifest_data, default_flow_style=False))
+
+        parser = ManifestParser()
+        manifest = parser.parse(str(manifest_file))
+
+        assert manifest.title == "IPTS-34347 Cu/THF experiment"
+        assert len(manifest.measurements) == 2
+
+    def test_parse_nonexistent_file(self):
+        """Test parsing a file that does not exist."""
+        parser = ManifestParser()
+        with pytest.raises(FileNotFoundError):
+            parser.parse("/nonexistent/manifest.yaml")
+
+    def test_parse_non_mapping(self, tmp_path):
+        """Test parsing a YAML file that isn't a mapping."""
+        manifest_file = tmp_path / "bad.yaml"
+        manifest_file.write_text("- just a list\n- of items\n")
+
+        parser = ManifestParser()
+        with pytest.raises(ValueError, match="YAML mapping"):
+            parser.parse(str(manifest_file))
+
+    def test_parse_measurements_not_list(self):
+        """Test parsing when measurements is not a list."""
+        parser = ManifestParser()
+        with pytest.raises(ValueError, match="must be a list"):
+            parser.parse_dict({
+                "output": "/tmp/out",
+                "measurements": "not-a-list",
+            })
+
+    def test_parse_measurement_not_mapping(self):
+        """Test parsing when a measurement entry is not a mapping."""
+        parser = ManifestParser()
+        with pytest.raises(ValueError, match="must be a mapping"):
+            parser.parse_dict({
+                "output": "/tmp/out",
+                "measurements": ["just a string"],
+            })
+
+    def test_measurement_default_name(self):
+        """Test that measurements get default names when not provided."""
+        parser = ManifestParser()
+        manifest = parser.parse_dict({
+            "output": "/tmp/out",
+            "measurements": [
+                {"reduced": "/some/file.txt"},
+                {"reduced": "/some/other.txt"},
+            ],
+        })
+        assert manifest.measurements[0].name == "Measurement 1"
+        assert manifest.measurements[1].name == "Measurement 2"
+
+    def test_validate_no_output(self):
+        """Test validation: missing output."""
+        manifest = Manifest(
+            measurements=[ManifestMeasurement(name="m1", reduced="/some/file.txt")],
+        )
+        errors = manifest.validate(check_files=False)
+        assert any("output" in e.lower() for e in errors)
+
+    def test_validate_no_measurements(self):
+        """Test validation: no measurements."""
+        manifest = Manifest(output="/tmp/out")
+        errors = manifest.validate(check_files=False)
+        assert any("measurement" in e.lower() for e in errors)
+
+    def test_validate_missing_reduced(self):
+        """Test validation: measurement without reduced file."""
+        manifest = Manifest(
+            output="/tmp/out",
+            measurements=[ManifestMeasurement(name="m1", reduced="")],
+        )
+        errors = manifest.validate(check_files=True)
+        assert any("reduced" in e.lower() for e in errors)
+
+    def test_validate_nonexistent_file(self):
+        """Test validation: reduced file doesn't exist."""
+        manifest = Manifest(
+            output="/tmp/out",
+            measurements=[ManifestMeasurement(
+                name="m1",
+                reduced="/nonexistent/file.txt",
+            )],
+        )
+        errors = manifest.validate(check_files=True)
+        assert any("not found" in e.lower() for e in errors)
+
+    def test_validate_bad_dataset_index(self, tmp_path):
+        """Test validation: model_dataset_index < 1."""
+        reduced = tmp_path / "reduced.txt"
+        reduced.write_text("0.01 1.0 0.1 0.001\n")
+
+        manifest = Manifest(
+            output="/tmp/out",
+            measurements=[ManifestMeasurement(
+                name="m1",
+                reduced=str(reduced),
+                model_dataset_index=0,
+            )],
+        )
+        errors = manifest.validate(check_files=True)
+        assert any("model_dataset_index" in e for e in errors)
+
+    def test_validate_sample_bad_dataset_index(self, tmp_path):
+        """Test validation: sample model_dataset_index < 1."""
+        reduced = tmp_path / "reduced.txt"
+        reduced.write_text("0.01 1.0 0.1 0.001\n")
+
+        manifest = Manifest(
+            output="/tmp/out",
+            sample=ManifestSample(model_dataset_index=0),
+            measurements=[ManifestMeasurement(name="m1", reduced=str(reduced))],
+        )
+        errors = manifest.validate(check_files=True)
+        assert any("model_dataset_index" in e for e in errors)
+
+    def test_validate_success(self, tmp_path):
+        """Test validation: everything valid."""
+        reduced = tmp_path / "REFL_218386.txt"
+        reduced.write_text("0.01 1.0 0.1 0.001\n")
+
+        manifest = Manifest(
+            output=str(tmp_path / "output"),
+            measurements=[ManifestMeasurement(
+                name="m1",
+                reduced=str(reduced),
+                environment="test env",
+            )],
+        )
+        errors = manifest.validate(check_files=True)
+        assert errors == []
+
+    def test_sample_defaults_empty(self):
+        """Test that an empty sample section yields defaults."""
+        parser = ManifestParser()
+        manifest = parser.parse_dict({
+            "output": "/tmp/out",
+            "measurements": [{"reduced": "/f.txt"}],
+        })
+        assert manifest.sample.description is None
+        assert manifest.sample.model is None
+        assert manifest.sample.model_dataset_index is None
 
 
 if __name__ == "__main__":

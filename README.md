@@ -39,6 +39,9 @@ data-assembler ingest -r data.txt -o output/ --json
 
 # Debug mode with full schema and missing field analysis
 data-assembler ingest -r data.txt -o output/ --debug
+
+# Batch: process an entire sample history from a YAML manifest
+data-assembler batch experiment.yaml --json
 ```
 
 ## CLI Commands
@@ -64,6 +67,7 @@ data-assembler ingest [OPTIONS]
 | `-m, --model PATH` | Path to refl1d/bumps model JSON file |
 | `--model-dataset-index N` | 1-based index of the dataset in a co-refinement model. If omitted, auto-detected by matching reflectivity data. |
 | `-e, --environment TEXT` | Description text for the environment record (e.g. `'Sample cell, flowing N2'`) |
+| `--sample-id UUID` | UUID of an existing sample to reuse (skips creating a new sample record) |
 | `--dry-run` | Parse and assemble but don't write output |
 | `--json` | Also write JSON files (in addition to Parquet) |
 | `--debug` | Write debug JSON with full schema and missing fields |
@@ -92,7 +96,76 @@ data-assembler ingest -r reduced.txt -m corefine.json -o output/
 # Override the environment description
 data-assembler ingest -r reduced.txt -p parquet_dir/ \
     -e "Electrochemical cell, THF electrolyte" -o output/
+
+# Reuse an existing sample across measurements
+data-assembler ingest -r run2.txt -m model.json \
+    --sample-id "e2baf3d3-5aaf-4ad9-9164-827ede801195" -o output/
 ```
+
+---
+
+### `batch` — Process a sample history
+
+Processes a YAML manifest describing a single physical sample and its
+ordered measurement history. The first measurement creates the sample
+record; all subsequent measurements reuse the same sample ID.
+
+```bash
+data-assembler batch MANIFEST [OPTIONS]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Parse and validate but don't write output |
+| `--json` | Also write JSON files (in addition to Parquet) |
+
+**Examples:**
+
+```bash
+# Process all measurements in a manifest
+data-assembler batch experiment.yaml
+
+# With JSON output for debugging / AI consumption
+data-assembler batch experiment.yaml --json
+
+# Validate without writing
+data-assembler batch experiment.yaml --dry-run
+```
+
+#### Manifest Format
+
+The manifest is a YAML file with three sections: `sample`, `output`, and
+`measurements`. Fields in `sample` (like `model` and `model_dataset_index`)
+act as defaults that individual measurements can override.
+
+```yaml
+title: "IPTS-34347 Cu/THF non-aqueous experiment"   # optional
+
+sample:
+  description: "Cu in THF on Si"        # overrides auto-extracted description
+  model: /path/to/corefine-model.json   # default model for all measurements
+  model_dataset_index: 1                # default dataset index (1-based)
+
+output: /path/to/output/
+
+measurements:
+  - name: "Steady-state OCV"
+    reduced: /path/to/REFL_218386_reduced.txt
+    parquet: /path/to/parquet/           # optional
+    model: /path/to/corefine-model.json  # overrides sample.model
+    model_dataset_index: 1               # overrides sample.model_dataset_index
+    environment: "Electrochemical cell, THF electrolyte, steady-state OCV"
+
+  - name: "Final OCV"
+    reduced: /path/to/REFL_218393_reduced.txt
+    model_dataset_index: 2               # different dataset from same model
+    environment: "Electrochemical cell, THF electrolyte, final OCV"
+```
+
+Each measurement produces its own reflectivity, environment, and
+reflectivity_model records. The sample record is created once and linked
+to all environments.
 
 ---
 
@@ -151,7 +224,9 @@ data-assembler find --run 218386 --search-path ~/data/ --json
 
 ### Parquet Files
 
-Output is organized for Iceberg ingestion:
+Output is organized for Iceberg ingestion.
+
+**Single measurement** (`ingest`):
 
 ```
 output/
@@ -170,6 +245,35 @@ output/
     ├── sample.json
     ├── environment.json
     └── reflectivity_model.json
+```
+
+**Batch** (`batch`): one sample, multiple measurements with per-run JSON:
+
+```
+output/
+├── reflectivity/
+│   └── facility=SNS/
+│       └── year=2025/
+│           ├── 218386.parquet
+│           └── 218393.parquet
+├── sample/
+│   └── <uuid>.parquet              # Written once with all environment IDs
+├── environment/
+│   ├── <uuid>.parquet              # One per measurement
+│   └── <uuid>.parquet
+├── reflectivity_model/
+│   ├── <uuid>.parquet
+│   └── <uuid>.parquet
+└── json/                           # Only with --json flag
+    ├── sample.json                 # Top-level, with complete environment_ids
+    ├── 218386/                     # Per-run subdirectory
+    │   ├── reflectivity.json
+    │   ├── environment.json
+    │   └── reflectivity_model.json
+    └── 218393/
+        ├── reflectivity.json
+        ├── environment.json
+        └── reflectivity_model.json
 ```
 
 ### Tables
@@ -203,10 +307,12 @@ With `--debug`, generates `debug_schema.json` containing:
 
 ## Python API
 
+### Single measurement
+
 ```python
 from assembler.parsers import ReducedParser, ParquetParser, ModelParser
 from assembler.workflow import DataAssembler
-from assembler.writers import ParquetWriter
+from assembler.writers.parquet_writer import write_assembly_to_parquet
 
 # Parse input files
 reduced = ReducedParser().parse("reduced.txt")
@@ -228,8 +334,37 @@ if result.needs_human_review:
     print("Review needed:", result.needs_review)
 
 # Write output
-writer = ParquetWriter("output/")
-paths = writer.write(result)
+paths = write_assembly_to_parquet(result, "output/")
+```
+
+### Reusing a sample across measurements
+
+```python
+# First run — creates the sample
+result1 = assembler.assemble(reduced=run1, parquet=pq1, model=model)
+sample_id = result1.sample["id"]
+write_assembly_to_parquet(result1, "output/")
+
+# Second run — reuses the same sample
+result2 = assembler.assemble(
+    reduced=run2, model=model, sample_id=sample_id,
+    environment_description="Post-cycling",
+)
+write_assembly_to_parquet(result2, "output/")
+```
+
+### Batch from manifest
+
+```python
+from assembler.parsers import ManifestParser
+
+manifest = ManifestParser().parse("experiment.yaml")
+errors = manifest.validate()
+if errors:
+    raise ValueError(errors)
+
+# The batch CLI command handles the full processing loop;
+# see `data-assembler batch --help` for details.
 ```
 
 ## Documentation

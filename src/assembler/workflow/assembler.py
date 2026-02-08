@@ -5,7 +5,7 @@ The main orchestrator for the ingestion workflow.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from assembler.parsers.model_parser import ModelData
 from assembler.parsers.parquet_parser import ParquetData
@@ -55,6 +55,7 @@ class DataAssembler:
         parquet: Optional[ParquetData] = None,
         model: Optional[ModelData] = None,
         environment_description: Optional[str] = None,
+        sample_id: Optional[str] = None,
     ) -> AssemblyResult:
         """
         Assemble data from parsed sources into schema-ready records.
@@ -72,6 +73,8 @@ class DataAssembler:
             parquet: Parsed parquet metadata (optional)
             model: Parsed model JSON data (optional)
             environment_description: Optional description text for the environment record
+            sample_id: Optional UUID of an existing sample to link to instead of
+                creating a new sample record
 
         Returns:
             AssemblyResult with assembled records and any issues
@@ -125,15 +128,26 @@ class DataAssembler:
                 model=model,
                 description_override=environment_description,
             )
+        elif environment_description is not None:
+            # Create a minimal environment record from the description alone
+            result.environment = self._build_minimal_environment(
+                description=environment_description,
+                model=model,
+            )
 
-        # Step 3: Build Sample record from model
-        if model is not None:
+        # Step 3: Build Sample record from model (skip if reusing existing sample)
+        if sample_id is not None:
+            result.external_sample_id = sample_id
+            logger.info(f"Using existing sample: {sample_id}")
+        elif model is not None:
             result.sample = build_sample_record(
                 model=model,
                 warnings=result.warnings,
                 errors=result.errors,
                 needs_review=result.needs_review,
             )
+
+        if model is not None:
             result.model_file = model.file_path
 
         # Step 4: Link IDs across the hierarchy (sample -> environment -> measurement)
@@ -141,9 +155,7 @@ class DataAssembler:
 
         # Step 5: Build Reflectivity Model record (needs measurement IDs from linking)
         if model is not None and model.raw_json is not None:
-            measurement_ids = (
-                [result.reflectivity["id"]] if result.reflectivity else []
-            )
+            measurement_ids = [result.reflectivity["id"]] if result.reflectivity else []
             result.reflectivity_model = build_reflectivity_model_record(
                 model=model,
                 measurement_ids=measurement_ids,
@@ -163,8 +175,11 @@ class DataAssembler:
         - Reflectivity gets environment_id and sample_id
         - Environment tracks measurement_ids
         - Sample tracks environment_ids
+
+        When external_sample_id is set (reusing an existing sample),
+        that ID is used for linking without creating a new sample record.
         """
-        sample_id = result.sample["id"] if result.sample else None
+        sample_id = result.sample["id"] if result.sample else result.external_sample_id
         environment_id = result.environment["id"] if result.environment else None
         reflectivity_id = result.reflectivity["id"] if result.reflectivity else None
 
@@ -186,9 +201,47 @@ class DataAssembler:
             result.sample["environment_ids"] = [environment_id]
 
     @staticmethod
-    def _auto_detect_dataset(
-        model: ModelData, reduced: ReducedData
-    ) -> Optional[int]:
+    def _build_minimal_environment(
+        description: str,
+        model: Optional[ModelData] = None,
+    ) -> dict[str, Any]:
+        """
+        Build a minimal environment record when no parquet data is available.
+
+        Used when the user provides --environment but no --parquet directory.
+        Creates a record with the description and ambient medium (from model),
+        but without instrument-extracted fields like temperature.
+
+        Args:
+            description: User-provided environment description
+            model: Optional model data for ambient medium extraction
+
+        Returns:
+            Dict matching ENVIRONMENT_SCHEMA
+        """
+        import uuid
+        from datetime import datetime, timezone
+
+        ambient_medium = None
+        if model and model.ambient:
+            ambient_medium = model.ambient.material.name
+
+        return {
+            "id": str(uuid.uuid4()),
+            "created_at": datetime.now(timezone.utc),
+            "is_deleted": False,
+            "sample_id": None,
+            "description": description,
+            "ambient_medium": ambient_medium,
+            "temperature": None,
+            "pressure": None,
+            "potential": None,
+            "relative_humidity": None,
+            "measurement_ids": [],
+        }
+
+    @staticmethod
+    def _auto_detect_dataset(model: ModelData, reduced: ReducedData) -> Optional[int]:
         """
         Auto-detect which experiment in a co-refinement model matches the reduced data.
 

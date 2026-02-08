@@ -13,11 +13,13 @@ For data types returned by parsers, import from the specific module::
     from assembler.parsers.model_parser import ModelData, ModelLayer
 """
 
+from .manifest_parser import ManifestParser
 from .model_parser import ModelParser
 from .parquet_parser import ParquetParser
 from .reduced_parser import ReducedParser
 
 __all__ = [
+    "ManifestParser",
     "ModelParser",
     "ParquetParser",
     "ReducedParser",

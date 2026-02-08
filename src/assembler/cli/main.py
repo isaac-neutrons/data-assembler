@@ -22,7 +22,7 @@ from assembler.tools import FileFinder
 from assembler.tools.detection import detect_file, extract_run_number
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers.json_writer import write_assembly_to_json
-from assembler.writers.parquet_writer import write_assembly_to_parquet
+from assembler.writers.parquet_writer import ParquetWriter, write_assembly_to_parquet
 
 
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
@@ -222,6 +222,13 @@ def find(
     help="Description text for the environment record (e.g. 'Sample cell, flowing N2').",
 )
 @click.option(
+    "--sample-id",
+    type=str,
+    default=None,
+    help="UUID of an existing sample to link to (skips creating a new sample record). "
+    "Use this when assembling additional measurements of the same physical sample.",
+)
+@click.option(
     "--output",
     "-o",
     required=True,
@@ -246,6 +253,7 @@ def ingest(
     model: Optional[str],
     model_dataset_index: Optional[int],
     environment: Optional[str],
+    sample_id: Optional[str],
     output: str,
     dry_run: bool,
     as_json: bool,
@@ -298,6 +306,7 @@ def ingest(
         parquet=parquet_data,
         model=model_data,
         environment_description=environment,
+        sample_id=sample_id,
     )
 
     if result.has_errors:
@@ -358,6 +367,222 @@ def ingest(
             click.echo(f"  {table_name}: {path}")
     except Exception as e:
         raise click.ClickException(f"Error writing output: {e}")
+
+
+@cli.command()
+@click.argument("manifest", type=click.Path(exists=True))
+@click.option("--dry-run", is_flag=True, help="Parse and validate but don't write output")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)"
+)
+@pass_config
+def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
+    """Process a YAML manifest describing a sample and its measurements.
+
+    The manifest defines a single physical sample and an ordered list of
+    measurements. The first measurement creates the sample record; all
+    subsequent measurements reuse the same sample ID.
+
+    Example:
+        data-assembler batch experiment.yaml --json
+    """
+    from assembler.parsers.manifest_parser import ManifestParser
+
+    logger = logging.getLogger("batch")
+
+    # Parse manifest
+    logger.info(f"Parsing manifest: {manifest}")
+    parser = ManifestParser()
+    try:
+        manifest_data = parser.parse(manifest)
+    except Exception as e:
+        raise click.ClickException(f"Error parsing manifest: {e}")
+
+    # Validate
+    errors = manifest_data.validate()
+    if errors:
+        click.echo(click.style("Manifest validation errors:", fg="red"), err=True)
+        for error in errors:
+            click.echo(f"  - {error}", err=True)
+        sys.exit(1)
+
+    title = manifest_data.title or Path(manifest).stem
+    click.echo(click.style(f"Batch: {title}", fg="cyan", bold=True))
+    click.echo(f"  Output: {manifest_data.output}")
+    click.echo(f"  Measurements: {len(manifest_data.measurements)}")
+    click.echo()
+
+    output_path = Path(manifest_data.output)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    reduced_parser = ReducedParser()
+    parquet_parser = ParquetParser()
+    model_parser = ModelParser()
+    assembler = DataAssembler()
+
+    sample_id: Optional[str] = None
+    sample_record: Optional[dict] = None
+    all_environment_ids: list[str] = []
+    all_paths: dict[str, list[str]] = {}
+    total_warnings: list[str] = []
+
+    for i, measurement in enumerate(manifest_data.measurements):
+        step = f"[{i + 1}/{len(manifest_data.measurements)}]"
+        click.echo(click.style(f"{step} {measurement.name}", fg="cyan"))
+
+        # Parse reduced
+        try:
+            reduced_data = reduced_parser.parse(measurement.reduced)
+        except Exception as e:
+            raise click.ClickException(
+                f"{step} Error parsing reduced file: {e}"
+            )
+
+        # Parse parquet (optional)
+        parquet_data = None
+        if measurement.parquet:
+            try:
+                run_number = extract_run_number(measurement.reduced)
+                parquet_data = parquet_parser.parse_directory(
+                    measurement.parquet, run_number=run_number
+                )
+            except Exception as e:
+                raise click.ClickException(
+                    f"{step} Error parsing parquet files: {e}"
+                )
+
+        # Parse model (optional)
+        model_data = None
+        model_file = measurement.model or manifest_data.sample.model
+        if model_file:
+            # Determine dataset index: measurement-level overrides sample-level
+            ds_index_1based = (
+                measurement.model_dataset_index
+                or manifest_data.sample.model_dataset_index
+            )
+            ds_index = (ds_index_1based - 1) if ds_index_1based is not None else None
+            try:
+                model_data = model_parser.parse(model_file, dataset_index=ds_index)
+            except Exception as e:
+                raise click.ClickException(
+                    f"{step} Error parsing model file: {e}"
+                )
+
+        # Assemble
+        result = assembler.assemble(
+            reduced=reduced_data,
+            parquet=parquet_data,
+            model=model_data,
+            environment_description=measurement.environment,
+            sample_id=sample_id,  # None for first measurement
+        )
+
+        if result.has_errors:
+            click.echo(click.style(f"  Errors:", fg="red"), err=True)
+            for error in result.errors:
+                click.echo(f"    - {error}", err=True)
+            sys.exit(1)
+
+        for warning in result.warnings:
+            click.echo(click.style(f"  Warning: {warning}", fg="yellow"), err=True)
+        total_warnings.extend(result.warnings)
+
+        # First measurement: capture the sample
+        if i == 0 and result.sample:
+            sample_record = result.sample
+            sample_id = sample_record["id"]
+            # Apply description override from manifest if provided
+            if manifest_data.sample.description:
+                sample_record["description"] = manifest_data.sample.description
+            # Don't let per-measurement writers write the sample;
+            # it will be written once at the end with all environment_ids.
+            result.sample = None
+            click.echo(f"  Sample: {sample_record['description']} ({sample_id[:8]}...)")
+        elif sample_id:
+            click.echo(f"  Sample: {sample_id[:8]}... (existing)")
+        else:
+            click.echo(click.style("  Warning: No sample created", fg="yellow"))
+
+        # Track environment IDs
+        if result.environment:
+            all_environment_ids.append(result.environment["id"])
+
+        # Print measurement summary
+        if result.reflectivity:
+            r = result.reflectivity
+            refl_data = r.get("reflectivity", {})
+            q = refl_data.get("q", [])
+            click.echo(f"  Reflectivity: run {r.get('run_number')} ({len(q)} Q points)")
+
+        if result.environment:
+            click.echo(f"  Environment: {result.environment['description']}")
+
+        if result.reflectivity_model:
+            rm = result.reflectivity_model
+            ds_idx = rm.get("dataset_index")
+            ds_display = ds_idx + 1 if ds_idx is not None else "?"
+            click.echo(
+                f"  Model: dataset {ds_display}"
+                f" of {rm.get('num_experiments', '?')}"
+            )
+
+        # Write output (unless dry run)
+        if not dry_run:
+            try:
+                paths = write_assembly_to_parquet(result, output_path)
+
+                if as_json:
+                    # Write per-measurement JSON (use run number subfolder to avoid overwrites)
+                    run_num = result.reflectivity.get("run_number", f"m{i+1}") if result.reflectivity else f"m{i+1}"
+                    json_dir = output_path / "json" / str(run_num)
+                    json_paths = write_assembly_to_json(result, json_dir)
+                    for name, path in json_paths.items():
+                        paths[f"{name}_json"] = path
+
+                for table_name, path in paths.items():
+                    all_paths.setdefault(table_name, []).append(str(path))
+
+            except Exception as e:
+                raise click.ClickException(
+                    f"{step} Error writing output: {e}"
+                )
+
+        click.echo()
+
+    # Update sample with all collected environment IDs and write once
+    if sample_record and not dry_run:
+        sample_record["environment_ids"] = all_environment_ids
+        try:
+            writer = ParquetWriter(output_path)
+            sample_path = writer.write_sample(sample_record)
+            all_paths.setdefault("sample", []).append(str(sample_path))
+
+            if as_json:
+                json_dir = output_path / "json"
+                json_dir.mkdir(parents=True, exist_ok=True)
+                from assembler.writers.json_writer import JSONWriter
+                json_writer = JSONWriter(json_dir)
+                json_writer.write_sample(sample_record)
+        except Exception as e:
+            raise click.ClickException(f"Error writing sample: {e}")
+
+    # Print batch summary
+    click.echo(click.style("─" * 50, fg="cyan"))
+    click.echo(click.style(f"Batch complete: {title}", fg="green", bold=True))
+    if sample_record:
+        click.echo(f"  Sample: {sample_record.get('description')} ({sample_id})")
+    click.echo(f"  Measurements: {len(manifest_data.measurements)}")
+    click.echo(f"  Environments: {len(all_environment_ids)}")
+    if total_warnings:
+        click.echo(f"  Warnings: {len(total_warnings)}")
+
+    if dry_run:
+        click.echo(click.style("\nDry run - no files written", fg="cyan"))
+    elif all_paths:
+        click.echo(click.style("\nOutput files:", fg="green"))
+        for table_name, paths_list in sorted(all_paths.items()):
+            for p in paths_list:
+                click.echo(f"  {table_name}: {p}")
 
 
 def _write_debug_json(
@@ -596,6 +821,8 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
         layers = s.get("layers", [])
         click.echo(f"    Layers: {len(layers) if layers else 0}")
         click.echo(f"    Main composition: {s.get('main_composition')}")
+    elif result.external_sample_id:
+        click.echo(f"  Sample: {result.external_sample_id} (existing)")
     else:
         click.echo("  Sample: Not assembled")
 
