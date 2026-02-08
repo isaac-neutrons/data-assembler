@@ -18,16 +18,25 @@ class ModelMaterial:
     name: str
     rho: float  # SLD
     irho: float = 0.0  # Imaginary SLD (absorption)
+    rho_std: Optional[float] = None  # Uncertainty on SLD (std deviation)
+    irho_std: Optional[float] = None  # Uncertainty on imaginary SLD
 
     @classmethod
-    def from_json(cls, data: dict, references: dict) -> "ModelMaterial":
+    def from_json(
+        cls,
+        data: dict,
+        references: dict,
+        error_data: Optional[dict[str, Any]] = None,
+    ) -> "ModelMaterial":
         """Create from JSON data with reference resolution."""
         name = data.get("name", "unknown")
 
         rho = cls._resolve_parameter(data.get("rho"), references)
         irho = cls._resolve_parameter(data.get("irho"), references)
+        rho_std = cls._resolve_std(data.get("rho"), references, error_data)
+        irho_std = cls._resolve_std(data.get("irho"), references, error_data)
 
-        return cls(name=name, rho=rho, irho=irho)
+        return cls(name=name, rho=rho, irho=irho, rho_std=rho_std, irho_std=irho_std)
 
     @staticmethod
     def _resolve_parameter(param: Any, references: dict) -> float:
@@ -50,6 +59,49 @@ class ModelMaterial:
             return ModelMaterial._extract_value(param)
 
         return 0.0
+
+    @staticmethod
+    def _resolve_std(
+        param: Any,
+        references: dict,
+        error_data: Optional[dict[str, Any]] = None,
+    ) -> Optional[float]:
+        """Resolve the uncertainty (std deviation) for a parameter.
+
+        Checks two sources:
+          1. An inline ``std`` field on the Parameter entry in *references*.
+          2. The companion *error_data* dict (from ``-err.json``), keyed by
+             parameter name.
+
+        Returns ``None`` when the parameter is fixed or has no uncertainty.
+        """
+        if not isinstance(param, dict):
+            return None  # literal value — no uncertainty
+
+        if param.get("__class__") != "Reference":
+            return None
+
+        ref_id = param.get("id")
+        if not ref_id or ref_id not in references:
+            return None
+
+        ref = references[ref_id]
+
+        # Fixed parameters have no uncertainty
+        if ref.get("fixed", True):
+            return None
+
+        # 1. Inline std on the Parameter entry itself
+        if "std" in ref:
+            return float(ref["std"])
+
+        # 2. Companion error data, keyed by parameter name
+        if error_data:
+            name = ref.get("name", "")
+            if name in error_data and "std" in error_data[name]:
+                return float(error_data[name]["std"])
+
+        return None
 
     @staticmethod
     def _extract_value(param_data: dict) -> float:
@@ -77,24 +129,35 @@ class ModelLayer:
     thickness: float
     interface: float
     material: ModelMaterial
+    thickness_std: Optional[float] = None  # Uncertainty on thickness
+    interface_std: Optional[float] = None  # Uncertainty on interface roughness
 
     @classmethod
-    def from_json(cls, data: dict, references: dict) -> "ModelLayer":
+    def from_json(
+        cls,
+        data: dict,
+        references: dict,
+        error_data: Optional[dict[str, Any]] = None,
+    ) -> "ModelLayer":
         """Create from JSON data with reference resolution."""
         name = data.get("name", "unknown")
 
         thickness = ModelMaterial._resolve_parameter(data.get("thickness"), references)
         interface = ModelMaterial._resolve_parameter(data.get("interface"), references)
+        thickness_std = ModelMaterial._resolve_std(data.get("thickness"), references, error_data)
+        interface_std = ModelMaterial._resolve_std(data.get("interface"), references, error_data)
 
         # Parse material
         material_data = data.get("material", {})
-        material = ModelMaterial.from_json(material_data, references)
+        material = ModelMaterial.from_json(material_data, references, error_data)
 
         return cls(
             name=name,
             thickness=thickness,
             interface=interface,
             material=material,
+            thickness_std=thickness_std,
+            interface_std=interface_std,
         )
 
 
@@ -117,6 +180,9 @@ class ModelData:
 
     # Which dataset/experiment was selected (0-indexed), None = not explicitly chosen
     dataset_index: Optional[int] = None
+
+    # Companion error data (from -err.json), keyed by parameter name
+    error_data: Optional[dict[str, Any]] = None
 
     @property
     def num_layers(self) -> int:
@@ -194,7 +260,7 @@ class ModelData:
         sample = models[index].get("sample") or {}
         self.layers = []
         for layer_data in sample.get("layers", []):
-            self.layers.append(ModelLayer.from_json(layer_data, references))
+            self.layers.append(ModelLayer.from_json(layer_data, references, self.error_data))
         self.dataset_index = index
 
     def get_probe_q(self, index: int) -> list[float]:
@@ -285,7 +351,17 @@ class ModelParser:
         with open(file_path, "r") as f:
             data = json.load(f)
 
-        return self.parse_dict(data, str(file_path), raw_json=data, dataset_index=dataset_index)
+        # Look for companion error file (<name>-err.json)
+        error_data = None
+        err_path = file_path.with_name(file_path.stem + "-err.json")
+        if err_path.exists():
+            with open(err_path, "r") as f:
+                error_data = json.load(f)
+
+        return self.parse_dict(
+            data, str(file_path), raw_json=data,
+            dataset_index=dataset_index, error_data=error_data,
+        )
 
     def parse_dict(
         self,
@@ -293,6 +369,7 @@ class ModelParser:
         file_path: str = "",
         raw_json: Optional[dict] = None,
         dataset_index: Optional[int] = None,
+        error_data: Optional[dict[str, Any]] = None,
     ) -> ModelData:
         """
         Parse model from dictionary.
@@ -303,6 +380,8 @@ class ModelParser:
             raw_json: Raw JSON dict to store for reproducibility
             dataset_index: 0-based index of the experiment to parse layers from.
                           None means auto-detect later (defaults to first experiment).
+            error_data: Companion error data dict (from ``-err.json``), keyed by
+                        parameter name, each entry containing at least ``"std"``.
 
         Returns:
             ModelData with parsed structure and parameters
@@ -311,6 +390,7 @@ class ModelParser:
             file_path=file_path,
             raw_json=raw_json or data,
             dataset_index=dataset_index,
+            error_data=error_data,
         )
 
         # Get references dictionary (for resolving parameter values)
@@ -337,7 +417,7 @@ class ModelParser:
         # Parse layers
         layers_data = sample.get("layers", [])
         for layer_data in layers_data:
-            layer = ModelLayer.from_json(layer_data, references)
+            layer = ModelLayer.from_json(layer_data, references, error_data)
             result.layers.append(layer)
 
         return result

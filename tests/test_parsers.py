@@ -185,6 +185,100 @@ class TestModelParser:
         assert len(data.film_layers) == 1
         assert data.total_thickness == pytest.approx(100.0)
 
+    def test_std_none_without_error_data(self, sample_model_json):
+        """Test that std fields are None when no error data is provided."""
+        parser = ModelParser()
+        data = parser.parse_dict(sample_model_json)
+
+        film = data.layers[1]
+        # Free parameters but no error source → None
+        assert film.thickness_std is None
+        assert film.interface_std is None
+        assert film.material.rho_std is None  # fixed, so also None
+        assert film.material.irho_std is None  # literal value
+
+    def test_std_inline_on_parameter(self, sample_model_json):
+        """Test resolving std directly from a Parameter entry (inline)."""
+        # Add std to the free parameter entries
+        sample_model_json["references"]["ref1"]["std"] = 3.5
+        sample_model_json["references"]["ref3"]["std"] = 0.8
+
+        parser = ModelParser()
+        data = parser.parse_dict(sample_model_json)
+
+        film = data.layers[1]
+        assert film.thickness_std == pytest.approx(3.5)
+        assert film.interface_std == pytest.approx(0.8)
+        # ref2 (rho) is fixed → no std even if we added one
+        assert film.material.rho_std is None
+
+    def test_std_from_error_data(self, sample_model_json):
+        """Test resolving std from companion error_data dict."""
+        error_data = {
+            "layer1 thickness": {"std": 4.2, "mean": 100.1},
+            "layer1 interface": {"std": 1.1, "mean": 5.1},
+        }
+
+        parser = ModelParser()
+        data = parser.parse_dict(sample_model_json, error_data=error_data)
+
+        film = data.layers[1]
+        assert film.thickness_std == pytest.approx(4.2)
+        assert film.interface_std == pytest.approx(1.1)
+        # rho (ref2) is fixed → None
+        assert film.material.rho_std is None
+
+    def test_std_inline_takes_precedence(self, sample_model_json):
+        """Test that inline std takes precedence over companion error_data."""
+        sample_model_json["references"]["ref1"]["std"] = 2.0
+        error_data = {
+            "layer1 thickness": {"std": 9.9},
+        }
+
+        parser = ModelParser()
+        data = parser.parse_dict(sample_model_json, error_data=error_data)
+
+        film = data.layers[1]
+        # Inline wins
+        assert film.thickness_std == pytest.approx(2.0)
+
+    def test_std_fixed_param_ignored(self, sample_model_json):
+        """Test that fixed parameters get None std even with error data."""
+        error_data = {
+            "layer1 rho": {"std": 0.001},
+        }
+
+        parser = ModelParser()
+        data = parser.parse_dict(sample_model_json, error_data=error_data)
+
+        film = data.layers[1]
+        # ref2 is fixed → always None
+        assert film.material.rho_std is None
+
+    def test_companion_err_json_autoloaded(self, sample_model_json, tmp_path):
+        """Test that parse() auto-loads a companion -err.json file."""
+        # Write the model file
+        model_path = tmp_path / "mymodel.json"
+        model_path.write_text(json.dumps(sample_model_json))
+
+        # Write a companion error file
+        err_data = {
+            "layer1 thickness": {"std": 5.5, "mean": 100.0},
+            "layer1 interface": {"std": 0.9, "mean": 5.0},
+        }
+        err_path = tmp_path / "mymodel-err.json"
+        err_path.write_text(json.dumps(err_data))
+
+        parser = ModelParser()
+        data = parser.parse(str(model_path))
+
+        film = data.layers[1]
+        assert film.thickness_std == pytest.approx(5.5)
+        assert film.interface_std == pytest.approx(0.9)
+        # Literal / fixed values still None
+        assert data.layers[0].thickness_std is None
+        assert data.layers[2].interface_std is None
+
 
 class TestParquetParser:
     """Tests for the parquet parser."""

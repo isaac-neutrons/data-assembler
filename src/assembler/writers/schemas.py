@@ -131,9 +131,13 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
                         ("layer_number", pa.int32()),
                         ("name", pa.string()),
                         ("thickness", pa.float64()),
+                        ("thickness_std", pa.float64()),
                         ("interface", pa.float64()),
+                        ("interface_std", pa.float64()),
                         ("sld", pa.float64()),
+                        ("sld_std", pa.float64()),
                         ("isld", pa.float64()),
+                        ("isld_std", pa.float64()),
                     ]
                 )
             ),

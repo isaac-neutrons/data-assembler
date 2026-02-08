@@ -84,9 +84,13 @@ def build_reflectivity_model_record(
                     "layer_number": i + 1,
                     "name": layer.name,
                     "thickness": layer.thickness,
+                    "thickness_std": layer.thickness_std,
                     "interface": layer.interface,
+                    "interface_std": layer.interface_std,
                     "sld": layer.material.rho,
+                    "sld_std": layer.material.rho_std,
                     "isld": layer.material.irho,
+                    "isld_std": layer.material.irho_std,
                 }
             )
 

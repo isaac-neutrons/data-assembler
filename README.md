@@ -283,7 +283,7 @@ output/
 | **reflectivity** | Measurement data | Q, R, dR, dQ arrays; run metadata; facility partitioning |
 | **sample** | Sample description | Layer stack, composition, geometry |
 | **environment** | Measurement conditions | Temperature, pressure, potential, humidity, description |
-| **reflectivity_model** | Fit model from refl1d/bumps | Layer parameters, software provenance, dataset index, full JSON |
+| **reflectivity_model** | Fit model from refl1d/bumps | Layer parameters with uncertainty (std), software provenance, dataset index, full JSON |
 
 ### Co-Refinement Models
 
@@ -296,6 +296,29 @@ Model JSON files from refl1d/bumps may contain multiple co-refined datasets
 
 The selected `dataset_index` (0-based) is recorded in the `reflectivity_model` table
 for traceability.
+
+### Parameter Uncertainty
+
+The `reflectivity_model` layers carry uncertainty estimates (`thickness_std`,
+`interface_std`, `sld_std`, `isld_std`) for each fit parameter. Values are
+the posterior standard deviation from the MCMC sampling run.
+
+**How uncertainty is resolved:**
+
+1. **Companion error file** — when a model is loaded from `<name>.json`, the
+   parser looks for a sibling `<name>-err.json` in the same directory. This is
+   the standard output produced by bumps/refl1d after an MCMC fit. It is a
+   JSON object keyed by parameter label (e.g. `"Cu thickness"`) with fields
+   including `std`, `mean`, `median`, and credible intervals (`p68`, `p95`).
+   The `std` value is matched to each layer property by following the
+   Reference → Parameter chain and comparing the parameter `name`.
+
+2. **Inline on Parameter** — if a future bumps schema version embeds `std`
+   directly on the Parameter entry inside `references`, that value is used
+   instead (and takes precedence over the companion file).
+
+Fixed parameters (`"fixed": true`) and literal numeric values always produce
+`null` — only free (optimized) parameters carry uncertainty.
 
 ### Debug Output
 
