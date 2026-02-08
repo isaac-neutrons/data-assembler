@@ -11,6 +11,7 @@ from assembler.instruments import Instrument, InstrumentRegistry
 from assembler.parsers.model_parser import ModelData
 from assembler.parsers.parquet_parser import ParquetData
 from assembler.parsers.reduced_parser import ReducedData
+from assembler.tools.detection import extract_instrument
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def build_reflectivity_record(
             proposal_number = reduced.experiment_id or "Unknown"
             run_number = str(reduced.run_number) if reduced.run_number else "Unknown"
             run_title = reduced.run_title or "Unknown"
-            instrument = "Unknown"
+            instrument = extract_instrument(reduced.file_path) or "Unknown"
 
             # Get instrument handler
             if instrument_handler is None:
