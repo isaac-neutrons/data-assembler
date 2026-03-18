@@ -113,3 +113,6 @@ Thumbs.db
 *.nxs.h5
 data/
 output/
+
+
+.idea
