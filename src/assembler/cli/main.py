@@ -22,6 +22,7 @@ from assembler.tools import FileFinder
 from assembler.tools.detection import detect_file, extract_run_number
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers.json_writer import write_assembly_to_json
+from assembler.writers.ravendb_writer import write_assembly_to_ravendb
 from assembler.writers.parquet_writer import ParquetWriter, write_assembly_to_parquet
 
 
@@ -240,6 +241,9 @@ def find(
     "--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)"
 )
 @click.option(
+    "--ravendb", "as_ravendb", is_flag=True, help="Also store them in RavenDB (in addition to Parquet)"
+)
+@click.option(
     "--debug",
     "debug_output",
     is_flag=True,
@@ -257,6 +261,7 @@ def ingest(
     output: str,
     dry_run: bool,
     as_json: bool,
+    as_ravendb: bool,
     debug_output: bool,
 ) -> None:
     """Ingest data and write to parquet.
@@ -354,6 +359,11 @@ def ingest(
             json_paths = write_assembly_to_json(result, json_dir)
             for name, path in json_paths.items():
                 paths[f"{name}_json"] = path
+
+        # Store in RavenDB if requested (for AI-ready data consumers)
+        if as_ravendb:
+            json_dir = output_path / "json"
+            json_paths = write_assembly_to_ravendb(result, json_dir)
 
         # Write debug JSON if requested
         if debug_output:
