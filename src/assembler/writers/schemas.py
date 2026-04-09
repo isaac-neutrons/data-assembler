@@ -7,16 +7,32 @@ ensuring compatibility with Apache Iceberg tables.
 
 import pyarrow as pa
 
+#material properties
+material = pa.struct(
+    [
+        ("composition", pa.string()),
+        ("mass", pa.float64()),
+        ("density", pa.float64()),
+    ]
+)
+
+#layer properties
+layer = pa.struct(
+    [
+        ("material", material),
+        ("thickness", pa.float64()),
+        ("roughness", pa.float64()),
+        ("sld", pa.float64()),
+    ]
+)
+
 # Schema for Reflectivity measurements
 REFLECTIVITY_SCHEMA = pa.schema(
     [
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        ("is_deleted", pa.bool_()),
-        # Relationship fields (sample -> environment -> measurement)
-        ("sample_id", pa.string()),
-        ("environment_id", pa.string()),
+        # ("is_deleted", pa.bool_()),
         # Measurement fields
         ("proposal_number", pa.string()),
         ("facility", pa.string()),
@@ -29,22 +45,15 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("run_number", pa.string()),
         ("run_start", pa.timestamp("us", tz="UTC")),
         ("raw_file_path", pa.string()),
-        ("instrument_name", pa.string()),
+        ("instrument", pa.string()),
         # Reflectivity-specific fields
-        (
-            "reflectivity",
-            pa.struct(
-                [
-                    ("measurement_geometry", pa.string()),
-                    ("reduction_time", pa.timestamp("us", tz="UTC")),
-                    ("reduction_version", pa.string()),
-                    ("q", pa.list_(pa.float64())),
-                    ("r", pa.list_(pa.float64())),
-                    ("dr", pa.list_(pa.float64())),
-                    ("dq", pa.list_(pa.float64())),
-                ]
-            ),
-        ),
+        ("measurement_geometry", pa.string()),
+        ("reduction_time", pa.timestamp("us", tz="UTC")),
+        ("reduction_version", pa.string()),
+        ("q_1_angstrom", pa.list_(pa.float64())),
+        ("r", pa.list_(pa.float64())),
+        ("d_r", pa.list_(pa.float64())),
+        ("d_q", pa.list_(pa.float64())),
     ],
 )
 
@@ -54,29 +63,25 @@ SAMPLE_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        ("is_deleted", pa.bool_()),
         # Sample fields
         ("description", pa.string()),
         ("main_composition", pa.string()),
         ("geometry", pa.string()),
         ("environment_ids", pa.list_(pa.string())),
         # Layers as JSON string (nested struct alternative)
-        ("layers_json", pa.string()),
+        #("layers_json", pa.string()),
         (
             "layers",
             pa.list_(
-                pa.struct(
-                    [
-                        ("layer_number", pa.int32()),
-                        ("material", pa.string()),
-                        ("thickness", pa.float64()),
-                        ("roughness", pa.float64()),
-                        ("sld", pa.float64()),
-                    ]
-                )
+                #layers are already sorted
+                layer
             ),
         ),
-        ("substrate_json", pa.string()),
+        # subrater is one layer
+        ("substrate",layer),
+        #for publications
+        ("publication_ids", pa.list_(pa.string())),
+
     ]
 )
 
@@ -86,17 +91,19 @@ ENVIRONMENT_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        ("is_deleted", pa.bool_()),
-        # Relationship field (sample -> environment)
-        ("sample_id", pa.string()),
+        #("is_deleted", pa.bool_()),
         # Environment fields
         ("description", pa.string()),
-        ("ambient_medium", pa.string()),
+        # material type
+        ("ambient_medium", material),
         ("temperature", pa.float64()),
         ("pressure", pa.float64()),
         ("potential", pa.float64()),
         ("relative_humidity", pa.float64()),
+        # Relationship field (environment -> measurements)
         ("measurement_ids", pa.list_(pa.string())),
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+
     ]
 )
 
@@ -107,7 +114,7 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        ("is_deleted", pa.bool_()),
+        #("is_deleted", pa.bool_()),
         # Relationship to reflectivity measurements
         ("measurement_ids", pa.list_(pa.string())),
         # Model identification
