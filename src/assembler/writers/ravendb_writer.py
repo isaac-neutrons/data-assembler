@@ -153,7 +153,7 @@ class RavenDBWriter:
         #print("record",record.keys())
         db_record = {}
         db_record["description"] = record["description"]
-        db_record["ambiant_medium"] = {
+        db_record["ambient_medium"] = {
             "composition":record["ambient_medium"]
         }
         db_record["temperature"] = record["temperature"]
