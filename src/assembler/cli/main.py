@@ -362,8 +362,9 @@ def ingest(
 
         # Store in RavenDB if requested (for AI-ready data consumers)
         if as_ravendb:
-            json_dir = output_path / "json"
-            json_paths = write_assembly_to_ravendb(result, json_dir)
+            db_paths = write_assembly_to_ravendb(result)
+            for name, path in db_paths.items():
+                paths[f"{name}_ravendb"] = path
 
         # Write debug JSON if requested
         if debug_output:

@@ -38,17 +38,13 @@ class RavenDBWriter:
     This writer stores the data, by calling the approtiate API calls
     """
 
-    def __init__(self, output_dir: str | Path):
+    def __init__(self):
         """
         Initialize the JSON writer.
 
-        Args:
-            output_dir: Base directory for output files
         """
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_reflectivity(self, record: dict[str, Any]) -> Path:
+    def write_reflectivity(self, record: dict[str, Any]) -> str:
         """
         Write a reflectivity record to DB.
 
@@ -61,7 +57,7 @@ class RavenDBWriter:
         db_record = {}
         db_record["proposal_number"] = record["proposal_number"]
         db_record["facility"] = record["facility"]
-        db_record["instrument"] = record["instrument_name"]
+        db_record["instrument"] = record["instrument"]
         db_record["laboratory"] = record["laboratory"]
         db_record["probe"] = record["probe"]
         db_record["technique"] = record["technique"].capitalize()
@@ -71,13 +67,13 @@ class RavenDBWriter:
         db_record["run_number"] = record["run_number"]
         db_record["run_start"] = record["run_start"].isoformat()
         db_record["raw_file_path"] = record["raw_file_path"]
-        db_record["q_1_angstrom"] = record["reflectivity"]["q"]
-        db_record["r"] = record["reflectivity"]["r"]
-        db_record["d_r"] = record["reflectivity"]["dr"]
-        db_record["d_q"] = record["reflectivity"]["dq"]
-        db_record["measurement_geometry"] = record["reflectivity"]["measurement_geometry"]
-        db_record["reduction_time"] = record["reflectivity"]["reduction_time"].isoformat()
-        db_record["reduction_version"] = record["reflectivity"]["reduction_version"]
+        db_record["q_1_angstrom"] = record["q_1_angstrom"]
+        db_record["r"] = record["r"]
+        db_record["d_r"] = record["d_r"]
+        db_record["d_q"] = record["d_q"]
+        db_record["measurement_geometry"] = record["measurement_geometry"]
+        db_record["reduction_time"] = record["reduction_time"].isoformat()
+        db_record["reduction_version"] = record["reduction_version"]
 
         url=HOSTNAME+"/api/reflectivity/create"
         response = requests.post(url, json=db_record)
@@ -91,7 +87,7 @@ class RavenDBWriter:
             print(f"Response: {response.json()}")
             return None
 
-    def write_sample(self, record: dict[str, Any],env_id) -> Path:
+    def write_sample(self, record: dict[str, Any],env_id) -> str:
         """
         Write a sample record to DB.
 
@@ -106,25 +102,8 @@ class RavenDBWriter:
         db_record["environment_ids"] = [env_id]
         db_record["main_composition"] = record["main_composition"]
         db_record["geometry"] = record["geometry"]
-        #parse to material and substrate format
-        db_layers=[]
-        sorted_layers = sorted(record["layers"], key=lambda x: x['layer_number'])
-        for layer in sorted_layers:
-            db_layer = {}
-            db_layer["thickness"] = layer["thickness"]
-            db_layer["material"] = {}
-            db_layer["material"]["composition"] = layer["material"] 
-            db_layer["sld"] =  layer["sld"] 
-            db_layer["roughness"] = layer["roughness"] 
-            db_layers.append(db_layer)
-        db_record["layers"] = db_layers
-        #substrate json 
-        substrate_json = json.loads(record["substrate_json"])
-        db_record["substrate"] = {}
-        db_record["substrate"]["thickness"] = substrate_json["thickness"]
-        db_record["substrate"]["material"] = {}
-        db_record["substrate"]["material"]["composition"] = substrate_json["name"] 
-        
+        db_record["layers"] = record["layers"]
+        db_record["substrate"] = record["substrate"]
         url=HOSTNAME+"/api/sample/create"
         response = requests.post(url, json=db_record)
 
@@ -139,7 +118,7 @@ class RavenDBWriter:
             print(f"Response: {response.json()}")
             return None
 
-    def write_environment(self, record: dict[str, Any], m_id) -> Path:
+    def write_environment(self, record: dict[str, Any], m_id) -> str:
         """
         Write an environment record to DB.
 
@@ -149,13 +128,9 @@ class RavenDBWriter:
         Returns:
             Environment ID
         """
-
-        #print("record",record.keys())
         db_record = {}
         db_record["description"] = record["description"]
-        db_record["ambient_medium"] = {
-            "composition":record["ambient_medium"]
-        }
+        db_record["ambient_medium"] = record["ambient_medium"]
         db_record["temperature"] = record["temperature"]
         db_record["pressure"] = record["pressure"]
         db_record["potential"] = record["potential"]
@@ -174,7 +149,7 @@ class RavenDBWriter:
             print(f"Request failed with status code: {response.status_code}")
             print(f"Response: {response.json()}")
             return None
-    def write_all(self, result: AssemblyResult) -> dict[str, Path]:
+    def write_all(self, result: AssemblyResult) -> dict[str, str]:
         """
         Write all assembled data to JSON files.
 
@@ -184,33 +159,31 @@ class RavenDBWriter:
         Returns:
             Dict mapping table names to written file paths
         """
-        paths: dict[str, Path] = {}
+        paths: dict[str, str] = {}
         ref_id = None
         env_id = None
         if result.reflectivity:
             ref_id = self.write_reflectivity(result.reflectivity)
-
+            paths["reflectivity"] = HOSTNAME+'/api/reflectivity/get/'+ref_id
         if result.environment:
             env_id = self.write_environment(result.environment,ref_id)
-
+            paths["environment"] = HOSTNAME+'/api/environment/get/'+env_id
         if result.sample:
-            self.write_sample(result.sample,env_id)
-
+            sample_id=self.write_sample(result.sample,env_id)
+            paths["sample"] = HOSTNAME+'/api/sample/get/'+sample_id
 
         return paths
 
 
-def write_assembly_to_ravendb(result: AssemblyResult, output_dir: str | Path) -> dict[str, Path]:
+def write_assembly_to_ravendb(result: AssemblyResult) -> dict[str, str]:
     """
     Convenience function to write all results from an assembly to JSON.
 
     Args:
         result: The AssemblyResult from DataAssembler
-        output_dir: Directory for output files
 
     Returns:
-        Dict mapping table names to written file paths
+        Dict mapping table names to written API paths
     """
-    print("RavenDBWriter")
-    writer = RavenDBWriter(output_dir)
+    writer = RavenDBWriter()
     return writer.write_all(result)
