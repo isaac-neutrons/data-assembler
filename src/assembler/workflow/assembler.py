@@ -183,15 +183,6 @@ class DataAssembler:
         environment_id = result.environment["id"] if result.environment else None
         reflectivity_id = result.reflectivity["id"] if result.reflectivity else None
 
-        # Link environment to sample
-        if result.environment:
-            result.environment["sample_id"] = sample_id
-
-        # Link reflectivity to environment and sample
-        if result.reflectivity:
-            result.reflectivity["environment_id"] = environment_id
-            result.reflectivity["sample_id"] = sample_id
-
         # Track measurement IDs in environment
         if result.environment and reflectivity_id:
             result.environment["measurement_ids"] = [reflectivity_id]

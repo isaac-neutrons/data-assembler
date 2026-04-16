@@ -64,12 +64,15 @@ def build_environment_record(
             # Base fields
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
+            #"is_deleted": False,
             # Relationship field (to be linked by assembler)
-            "sample_id": None,
             # Environment fields
             "description": description,
-            "ambient_medium": ambient_medium,
+            "ambient_medium": {
+                "composition": ambient_medium,
+                "mass": None,
+                "density":None,
+            },
             "temperature": extracted.temperature,
             "pressure": extracted.pressure,
             "potential": None,
