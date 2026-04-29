@@ -57,7 +57,7 @@ class RavenDBWriter:
         db_record = {}
         db_record["proposal_number"] = record["proposal_number"]
         db_record["facility"] = record["facility"]
-        db_record["instrument"] = record["instrument"]
+        db_record["instrument"] = record["instrument_name"]
         db_record["laboratory"] = record["laboratory"]
         db_record["probe"] = record["probe"]
         db_record["technique"] = record["technique"].capitalize()
@@ -67,10 +67,10 @@ class RavenDBWriter:
         db_record["run_number"] = record["run_number"]
         db_record["run_start"] = record["run_start"].isoformat()
         db_record["raw_file_path"] = record["raw_file_path"]
-        db_record["q_1_angstrom"] = record["q_1_angstrom"]
+        db_record["q_1_angstrom"] = record["q"]
         db_record["r"] = record["r"]
-        db_record["d_r"] = record["d_r"]
-        db_record["d_q"] = record["d_q"]
+        db_record["d_r"] = record["dr"]
+        db_record["d_q"] = record["dq"]
         db_record["measurement_geometry"] = record["measurement_geometry"]
         db_record["reduction_time"] = record["reduction_time"].isoformat()
         db_record["reduction_version"] = record["reduction_version"]

@@ -10,15 +10,18 @@ import pyarrow as pa
 #material properties
 material = pa.struct(
     [
-        ("composition", pa.string()),
+        ("name", pa.string()),
         ("mass", pa.float64()),
         ("density", pa.float64()),
+        ("rho", pa.float64()),
+        ("irho", pa.float64()),
     ]
 )
 
 #layer properties
 layer = pa.struct(
     [
+        ("name", pa.string()),
         ("material", material),
         ("thickness", pa.float64()),
         ("roughness", pa.float64()),
@@ -45,12 +48,12 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("run_number", pa.string()),
         ("run_start", pa.timestamp("us", tz="UTC")),
         ("raw_file_path", pa.string()),
-        ("instrument", pa.string()),
+        ("instrument_name", pa.string()),
         # Reflectivity-specific fields
         ("measurement_geometry", pa.string()),
         ("reduction_time", pa.timestamp("us", tz="UTC")),
         ("reduction_version", pa.string()),
-        ("q_1_angstrom", pa.list_(pa.float64())),
+        pa.field("q",pa.list_(pa.float64()),metadata={b'units': b'the units'}),
         ("r", pa.list_(pa.float64())),
         ("d_r", pa.list_(pa.float64())),
         ("d_q", pa.list_(pa.float64())),

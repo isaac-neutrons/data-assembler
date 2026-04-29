@@ -36,42 +36,29 @@ def build_sample_record(
         Dict matching SAMPLE_SCHEMA, or None on error
     """
     try:
-        layers_structs = []
         layers_json_list = []
         substrate = None
 
         for i, model_layer in enumerate(model.layers):
             layer_dict = {
-                #"name": model_layer.name,
+                "name": model_layer.name,
                 "thickness": model_layer.thickness,
-                #"interface": model_layer.interface, #extra
+                "roughness": model_layer.interface,
                 "material": {
-                    "composition": model_layer.material.name,
+                    "name": model_layer.material.name,
+                    "rho": model_layer.material.rho,
+                    "irho": model_layer.material.irho,
                     "mass": None,
-                    "density":None,
-                    #"rho": model_layer.material.rho, #extra
-                    #"irho": model_layer.material.irho, #extra
+                    "density":None
                 },
+                "sld": model_layer.material.rho,
             }
-
             # Last layer with zero thickness is substrate
             if i == len(model.layers) - 1 and model_layer.thickness == 0:
                 substrate = layer_dict
             else:
                 layers_json_list.append(layer_dict)
                 # Build struct for schema
-                layers_structs.append(
-                    {
-                        "material": {
-                            "composition": model_layer.material.name,
-                            "mass": None,
-                            "density":None,
-                        },
-                        "thickness": model_layer.thickness,
-                        "roughness": model_layer.interface,
-                        "sld": model_layer.material.rho,
-                    }
-                )
 
             # Flag generic layer names for review
             if model_layer.name.lower() in ["material", "layer", "film"]:
@@ -88,7 +75,7 @@ def build_sample_record(
         ambient_name = model.ambient.material.name if model.ambient else "air"
         description = f"{main_composition} in {ambient_name}"
         if substrate:
-            description += f" on {substrate['material']['composition']}"
+            description += f" on {substrate['material']['name']}"
 
         # Build the record matching SAMPLE_SCHEMA
         record = {
@@ -101,7 +88,7 @@ def build_sample_record(
             "main_composition": main_composition,
             "geometry": None,
             "environment_ids": [],
-            "layers": layers_structs,
+            "layers": layers_json_list,
             "substrate": substrate,
             "publication_ids": [],
 

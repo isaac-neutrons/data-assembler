@@ -69,7 +69,7 @@ def build_environment_record(
             # Environment fields
             "description": description,
             "ambient_medium": {
-                "composition": ambient_medium,
+                "name": ambient_medium,
                 "mass": None,
                 "density":None,
             },

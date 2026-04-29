@@ -126,15 +126,15 @@ def build_reflectivity_record(
             "run_number": run_number,
             "run_start": run_start,
             "raw_file_path": raw_file_path,
-            "instrument": instrument,
+            "instrument_name": instrument,
             # Reflectivity-specific fields as nested struct
             "measurement_geometry": measurement_geometry,
             "reduction_time": reduced.reduction_time,
             "reduction_version": reduced.reduction_version,
-            "q_1_angstrom": reduced.q,
+            "q": reduced.q,
             "r": reduced.r,
-            "d_r": reduced.dr,
-            "d_q": reduced.dq,
+            "dr": reduced.dr,
+            "dq": reduced.dq,
             
         }
 
