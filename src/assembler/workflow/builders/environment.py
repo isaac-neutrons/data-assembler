@@ -64,7 +64,6 @@ def build_environment_record(
             # Base fields
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            #"is_deleted": False,
             # Relationship field (to be linked by assembler)
             # Environment fields
             "description": description,

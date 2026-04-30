@@ -113,7 +113,6 @@ def build_reflectivity_record(
             # Base fields
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            #"is_deleted": False,
             # Measurement fields
             "proposal_number": proposal_number,
             "facility": facility,

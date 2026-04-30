@@ -7,25 +7,22 @@ ensuring compatibility with Apache Iceberg tables.
 
 import pyarrow as pa
 
-#material properties
 material = pa.struct(
     [
         ("name", pa.string()),
         ("mass", pa.float64()),
         ("density", pa.float64()),
-        ("rho", pa.float64()),
-        ("irho", pa.float64()),
+        ("sld", pa.float64()), #rho
+        ("isld", pa.float64()), #irho
     ]
 )
 
-#layer properties
 layer = pa.struct(
     [
         ("name", pa.string()),
         ("material", material),
         ("thickness", pa.float64()),
         ("roughness", pa.float64()),
-        ("sld", pa.float64()),
     ]
 )
 
@@ -35,7 +32,6 @@ REFLECTIVITY_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        # ("is_deleted", pa.bool_()),
         # Measurement fields
         ("proposal_number", pa.string()),
         ("facility", pa.string()),
@@ -55,8 +51,8 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("reduction_version", pa.string()),
         pa.field("q",pa.list_(pa.float64()),metadata={b'units': b'the units'}),
         ("r", pa.list_(pa.float64())),
-        ("d_r", pa.list_(pa.float64())),
-        ("d_q", pa.list_(pa.float64())),
+        ("dr", pa.list_(pa.float64())),
+        ("dq", pa.list_(pa.float64())),
     ],
 )
 
@@ -94,7 +90,6 @@ ENVIRONMENT_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        #("is_deleted", pa.bool_()),
         # Environment fields
         ("description", pa.string()),
         # material type
@@ -117,7 +112,6 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        #("is_deleted", pa.bool_()),
         # Relationship to reflectivity measurements
         ("measurement_ids", pa.list_(pa.string())),
         # Model identification

@@ -46,12 +46,11 @@ def build_sample_record(
                 "roughness": model_layer.interface,
                 "material": {
                     "name": model_layer.material.name,
-                    "rho": model_layer.material.rho,
-                    "irho": model_layer.material.irho,
+                    "sld": model_layer.material.rho,
+                    "isld": model_layer.material.irho,
                     "mass": None,
                     "density":None
                 },
-                "sld": model_layer.material.rho,
             }
             # Last layer with zero thickness is substrate
             if i == len(model.layers) - 1 and model_layer.thickness == 0:
