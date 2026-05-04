@@ -521,8 +521,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
         # Print measurement summary
         if result.reflectivity:
             r = result.reflectivity
-            refl_data = r.get("reflectivity", {})
-            q = refl_data.get("q", [])
+            q = r.get("q", []) or []
             click.echo(f"  Reflectivity: run {r.get('run_number')} ({len(q)} Q points)")
 
         if result.environment:
@@ -817,9 +816,7 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
         click.echo(f"  Reflectivity: {r['run_number']} - {r['run_title']}")
         facility = r.get("facility", "Unknown")
         click.echo(f"    Facility: {facility or 'Unknown'}")
-        # Reflectivity data is in nested 'reflectivity' struct
-        refl_data = r.get("reflectivity", {})
-        q = refl_data.get("q", [])
+        q = r.get("q", []) or []
         click.echo(f"    Q points: {len(q) if q else 0}")
         if q:
             click.echo(f"    Q range: {min(q):.4f} - {max(q):.4f} Å⁻¹")

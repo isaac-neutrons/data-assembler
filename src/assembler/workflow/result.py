@@ -70,8 +70,7 @@ class AssemblyResult:
 
         if self.reflectivity:
             refl = self.reflectivity
-            refl_data = refl.get("reflectivity", {})
-            q = refl_data.get("q", [])
+            q = refl.get("q", []) or []
             lines.append(f"  Reflectivity: {refl.get('run_number')} - {refl.get('run_title')}")
             lines.append(f"    Facility: {refl.get('facility')}")
             lines.append(f"    Q points: {len(q)}")

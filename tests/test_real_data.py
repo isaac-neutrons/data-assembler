@@ -121,8 +121,7 @@ class TestFullWorkflowWithRealData:
         # Check result
         assert result.reflectivity is not None
         assert result.reflectivity["run_number"] == "218386"
-        refl_data = result.reflectivity.get("reflectivity", {})
-        assert len(refl_data.get("q", [])) > 0
+        assert len(result.reflectivity.get("q", [])) > 0
 
         # Check no assembly errors
         assert not result.has_errors, f"Assembly errors: {result.errors}"
@@ -160,7 +159,6 @@ class TestFullWorkflowWithRealData:
         assert table.num_rows == 1
         assert table.column("run_number")[0].as_py() == "218386"
 
-        # Check Q data was preserved (inside reflectivity struct)
-        refl_struct = table.column("reflectivity")[0].as_py()
-        q_data = refl_struct["q"]
+        # Check Q data was preserved
+        q_data = table.column("q")[0].as_py()
         assert len(q_data) > 100, "Expected many Q points from real data"

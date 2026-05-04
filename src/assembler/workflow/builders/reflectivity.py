@@ -155,12 +155,11 @@ def _validate_reflectivity_data(
 ) -> list[str]:
     """Validate reflectivity data and return warnings."""
     warnings = []
-    refl_data = record.get("reflectivity", {})
 
-    q = refl_data.get("q", [])
-    r = refl_data.get("r", [])
-    dr = refl_data.get("dr", [])
-    dq = refl_data.get("dq", [])
+    q = record.get("q", []) or []
+    r = record.get("r", []) or []
+    dr = record.get("dr", []) or []
+    dq = record.get("dq", []) or []
 
     # Check array lengths match
     if not (len(q) == len(r) == len(dr) == len(dq)):

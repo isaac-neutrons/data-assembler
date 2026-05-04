@@ -135,11 +135,17 @@ class ParquetParser:
             name = parquet_file.stem.lower()
 
             if "metadata" in name:
-                result.metadata = self.parse_metadata(parquet_file, run_number)
+                metadata = self.parse_metadata(parquet_file, run_number)
+                if metadata is not None:
+                    result.metadata = metadata
             elif "sample" in name and "event" not in name:
-                result.sample = self.parse_sample(parquet_file, run_number)
+                sample = self.parse_sample(parquet_file, run_number)
+                if sample is not None:
+                    result.sample = sample
             elif "daslogs" in name:
-                result.daslogs = self.parse_daslogs(parquet_file, run_number)
+                daslogs = self.parse_daslogs(parquet_file, run_number)
+                if daslogs:
+                    result.daslogs = daslogs
 
         return result
 

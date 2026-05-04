@@ -44,7 +44,7 @@ class DataAssembler:
         # Check result
         if result.is_complete:
             refl = result.reflectivity
-            print(f"Assembled {len(refl['reflectivity']['q'])} Q points")
+            print(f"Assembled {len(refl['q'])} Q points")
         if result.needs_human_review:
             print(f"Review needed: {result.needs_review}")
     """
@@ -220,10 +220,12 @@ class DataAssembler:
         return {
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            "sample_id": None,
             "description": description,
-            "ambient_medium": ambient_medium,
+            "ambient_medium": {
+                "name": ambient_medium,
+                "mass": None,
+                "density": None,
+            },
             "temperature": None,
             "pressure": None,
             "potential": None,

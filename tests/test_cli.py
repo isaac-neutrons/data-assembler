@@ -356,11 +356,11 @@ class TestCLIBatch:
         with open(json_dir / "100002" / "environment.json") as f:
             env2 = json.load(f)
 
-        # All records reference the same sample
-        assert refl1["sample_id"] == sample["id"]
-        assert refl2["sample_id"] == sample["id"]
-        assert env1["sample_id"] == sample["id"]
-        assert env2["sample_id"] == sample["id"]
+        # All measurements reference the same sample via environment linking
+        # Sample tracks environment IDs; environments track measurement IDs.
+        assert set(sample["environment_ids"]) == {env1["id"], env2["id"]}
+        assert refl1["id"] in env1["measurement_ids"]
+        assert refl2["id"] in env2["measurement_ids"]
 
         # Sample has both environment IDs
         assert set(sample["environment_ids"]) == {env1["id"], env2["id"]}
