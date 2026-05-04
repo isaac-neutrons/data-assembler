@@ -36,39 +36,28 @@ def build_sample_record(
         Dict matching SAMPLE_SCHEMA, or None on error
     """
     try:
-        layers_structs = []
         layers_json_list = []
         substrate = None
-        substrate_json = None
 
         for i, model_layer in enumerate(model.layers):
             layer_dict = {
                 "name": model_layer.name,
                 "thickness": model_layer.thickness,
-                "interface": model_layer.interface,
+                "roughness": model_layer.interface,
                 "material": {
                     "name": model_layer.material.name,
-                    "rho": model_layer.material.rho,
-                    "irho": model_layer.material.irho,
+                    "sld": model_layer.material.rho,
+                    "isld": model_layer.material.irho,
+                    "mass": None,
+                    "density":None
                 },
             }
-
             # Last layer with zero thickness is substrate
             if i == len(model.layers) - 1 and model_layer.thickness == 0:
                 substrate = layer_dict
-                substrate_json = json.dumps(layer_dict)
             else:
                 layers_json_list.append(layer_dict)
                 # Build struct for schema
-                layers_structs.append(
-                    {
-                        "layer_number": len(layers_structs) + 1,
-                        "material": model_layer.material.name,
-                        "thickness": model_layer.thickness,
-                        "roughness": model_layer.interface,
-                        "sld": model_layer.material.rho,
-                    }
-                )
 
             # Flag generic layer names for review
             if model_layer.name.lower() in ["material", "layer", "film"]:
@@ -92,15 +81,16 @@ def build_sample_record(
             # Base fields
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
+            #"is_deleted": False,
             # Sample fields
             "description": description,
             "main_composition": main_composition,
             "geometry": None,
             "environment_ids": [],
-            "layers_json": json.dumps(layers_json_list) if layers_json_list else None,
-            "layers": layers_structs,
-            "substrate_json": substrate_json,
+            "layers": layers_json_list,
+            "substrate": substrate,
+            "publication_ids": [],
+
         }
 
         return record

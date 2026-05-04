@@ -113,10 +113,6 @@ def build_reflectivity_record(
             # Base fields
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
-            "is_deleted": False,
-            # Relationship fields (to be linked by assembler)
-            "sample_id": None,
-            "environment_id": None,
             # Measurement fields
             "proposal_number": proposal_number,
             "facility": facility,
@@ -131,15 +127,14 @@ def build_reflectivity_record(
             "raw_file_path": raw_file_path,
             "instrument_name": instrument,
             # Reflectivity-specific fields as nested struct
-            "reflectivity": {
-                "measurement_geometry": measurement_geometry,
-                "reduction_time": reduced.reduction_time,
-                "reduction_version": reduced.reduction_version,
-                "q": reduced.q,
-                "r": reduced.r,
-                "dr": reduced.dr,
-                "dq": reduced.dq,
-            },
+            "measurement_geometry": measurement_geometry,
+            "reduction_time": reduced.reduction_time,
+            "reduction_version": reduced.reduction_version,
+            "q": reduced.q,
+            "r": reduced.r,
+            "dr": reduced.dr,
+            "dq": reduced.dq,
+            
         }
 
         # Run instrument-specific validation (creates a temp object for validation)
@@ -147,7 +142,6 @@ def build_reflectivity_record(
         validation_warnings = _validate_reflectivity_data(record)
         for warning in validation_warnings:
             warnings.append(warning)
-
         return record
 
     except Exception as e:

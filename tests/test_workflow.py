@@ -112,8 +112,8 @@ class TestDataAssembler:
         assert isinstance(result, AssemblyResult)
         assert result.reflectivity is not None
         assert result.reflectivity["run_number"] == "218386"
-        assert result.reflectivity["reflectivity"]["q"] == [0.01, 0.02, 0.03]
-        assert result.reflectivity["reflectivity"]["r"] == [1.0, 0.8, 0.5]
+        assert result.reflectivity["q"] == [0.01, 0.02, 0.03]
+        assert result.reflectivity["r"] == [1.0, 0.8, 0.5]
 
     def test_assemble_creates_sample_from_model(self):
         """Test that assembler creates Sample from model data."""
@@ -225,15 +225,13 @@ class TestParquetWriter:
                 "raw_file_path": None,
                 "instrument_name": "REF_L",
                 "sample_id": None,
-                "reflectivity": {
-                    "measurement_geometry": None,
-                    "reduction_time": None,
-                    "reduction_version": None,
-                    "q": [0.01, 0.02, 0.03],
-                    "r": [1.0, 0.8, 0.5],
-                    "dr": [0.01, 0.01, 0.02],
-                    "dq": [0.001, 0.001, 0.002],
-                },
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "q": [0.01, 0.02, 0.03],
+                "r": [1.0, 0.8, 0.5],
+                "dr": [0.01, 0.01, 0.02],
+                "dq": [0.001, 0.001, 0.002],
             }
             
             path = writer.write_reflectivity(refl_record)
@@ -244,8 +242,8 @@ class TestParquetWriter:
             # Read single file using ParquetFile to avoid dataset discovery
             pf = pq.ParquetFile(str(path))
             table = pf.read()
-            # Reflectivity data is now in nested 'reflectivity' struct
-            assert "reflectivity" in table.column_names
+            # Reflectivity data are flat
+            assert "q" in table.column_names
             assert table.num_rows == 1
 
     def test_write_assembly(self):
@@ -270,15 +268,13 @@ class TestParquetWriter:
                 "raw_file_path": None,
                 "instrument_name": "REF_L",
                 "sample_id": None,
-                "reflectivity": {
-                    "measurement_geometry": None,
-                    "reduction_time": None,
-                    "reduction_version": None,
-                    "q": [0.01, 0.02],
-                    "r": [1.0, 0.8],
-                    "dr": [0.01, 0.01],
-                    "dq": [0.001, 0.001],
-                },
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "q": [0.01, 0.02],
+                "r": [1.0, 0.8],
+                "dr": [0.01, 0.01],
+                "dq": [0.001, 0.001],
             }
             
             sample_record = {
@@ -318,7 +314,6 @@ class TestParquetWriter:
             assert "sample" in paths
             assert "environment" in paths
             
-            assert Path(paths["reflectivity"]).exists()
             assert Path(paths["sample"]).exists()
             assert Path(paths["environment"]).exists()
 
@@ -348,15 +343,13 @@ class TestParquetWriter:
                 "raw_file_path": None,
                 "instrument_name": "REF_L",
                 "sample_id": None,
-                "reflectivity": {
-                    "measurement_geometry": None,
-                    "reduction_time": None,
-                    "reduction_version": None,
-                    "q": [0.01],
-                    "r": [1.0],
-                    "dr": [0.01],
-                    "dq": [0.001],
-                },
+                "measurement_geometry": None,
+                "reduction_time": None,
+                "reduction_version": None,
+                "q": [0.01],
+                "r": [1.0],
+                "dr": [0.01],
+                "dq": [0.001],
             }
             
             path = writer.write_reflectivity(refl_record)
