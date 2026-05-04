@@ -134,7 +134,6 @@ def build_reflectivity_record(
             "r": reduced.r,
             "dr": reduced.dr,
             "dq": reduced.dq,
-            
         }
 
         # Run instrument-specific validation (creates a temp object for validation)

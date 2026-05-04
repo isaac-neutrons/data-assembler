@@ -16,7 +16,6 @@ from assembler.tools.detection import detect_file_type, extract_run_number
 from assembler.workflow import DataAssembler
 from assembler.writers import ParquetWriter
 
-
 # Paths to real test data
 PARQUET_DIR = Path(os.path.expanduser("~/data/isaac/expt11/parquet"))
 REDUCED_FILE = Path(os.path.expanduser("~/data/REFL_218386_combined_data_auto.txt"))

@@ -3,9 +3,6 @@ Tests for the CLI module.
 """
 
 import json
-import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -80,12 +77,16 @@ class TestCLIIngest:
 """)
 
         output_dir = tmp_path / "output"
-        result = app([
-            "ingest",
-            "--reduced", str(reduced_file),
-            "--output", str(output_dir),
-            "--dry-run",
-        ])
+        result = app(
+            [
+                "ingest",
+                "--reduced",
+                str(reduced_file),
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
         assert result == 0
         # With --dry-run, output dir should not be created
         # (or may exist but be empty)
@@ -102,11 +103,15 @@ class TestCLIIngest:
 """)
 
         output_dir = tmp_path / "output"
-        result = app([
-            "ingest",
-            "--reduced", str(reduced_file),
-            "--output", str(output_dir),
-        ])
+        result = app(
+            [
+                "ingest",
+                "--reduced",
+                str(reduced_file),
+                "--output",
+                str(output_dir),
+            ]
+        )
         assert result == 0
 
         # Check output was created
@@ -127,12 +132,16 @@ class TestCLIIngest:
 """)
 
         output_dir = tmp_path / "output"
-        result = app([
-            "ingest",
-            "--reduced", str(reduced_file),
-            "--output", str(output_dir),
-            "--json",
-        ])
+        result = app(
+            [
+                "ingest",
+                "--reduced",
+                str(reduced_file),
+                "--output",
+                str(output_dir),
+                "--json",
+            ]
+        )
         assert result == 0
 
         # Check JSON directory was created
@@ -145,6 +154,7 @@ class TestCLIIngest:
 
         # Verify JSON content matches schema
         import json
+
         with open(refl_json) as f:
             data = json.load(f)
 
@@ -152,7 +162,7 @@ class TestCLIIngest:
         assert "id" in data
         assert "run_number" in data
         # Reflectivity data is now in nested 'reflectivity' struct
-        #assert "reflectivity" in data
+        # assert "reflectivity" in data
         assert "q" in data
         assert "r" in data
         assert int(data["run_number"]) == 218386
@@ -382,4 +392,3 @@ class TestCLIBatch:
 
         result = app(["batch", str(manifest_file)])
         assert result == 1
-

@@ -179,7 +179,6 @@ class DataAssembler:
         When external_sample_id is set (reusing an existing sample),
         that ID is used for linking without creating a new sample record.
         """
-        sample_id = result.sample["id"] if result.sample else result.external_sample_id
         environment_id = result.environment["id"] if result.environment else None
         reflectivity_id = result.reflectivity["id"] if result.reflectivity else None
 

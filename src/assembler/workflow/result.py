@@ -97,9 +97,11 @@ class AssemblyResult:
         if self.reflectivity_model:
             rm = self.reflectivity_model
             lines.append(f"  Reflectivity Model: {rm.get('model_name', 'Unknown')}")
-            lines.append(f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}")
+            lines.append(
+                f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}"
+            )
             lines.append(f"    Experiments: {rm.get('num_experiments', 0)}")
-            model_layers = rm.get('layers', [])
+            model_layers = rm.get("layers", [])
             lines.append(f"    Layers: {len(model_layers)}")
         else:
             lines.append("  Reflectivity Model: Not assembled")
