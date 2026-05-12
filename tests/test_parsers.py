@@ -70,6 +70,32 @@ class TestReducedParser:
         assert extract_run_number_from_filename("REF_L_123456.txt") == 123456
         assert extract_run_number_from_filename("no_number.txt") is None
 
+    def test_parses_meta_block_from_fixture(self):
+        fixture = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+        data = ReducedParser().parse(fixture)
+
+        assert data.meta is not None
+        assert data.meta["experiment"] == "IPTS-36897"
+        assert data.meta["run_number"] == "226659"
+        assert data.meta["run_title"] == "Sample_5-226658-2."
+        assert data.meta["start_time"] == "2026-03-30T09:52:00.244352667"
+        assert data.meta["wl_min"] == pytest.approx(2.679749638902263)
+        assert data.meta["scaling_factors"] == {"a": 25.0, "err_a": 0, "b": 0, "err_b": 0}
+
+    def test_meta_absent_does_not_error(self, sample_reduced_content):
+        data = ReducedParser().parse_content(sample_reduced_content, "test.txt")
+        assert data.meta is None
+
+    def test_meta_malformed_is_tolerated(self):
+        bad = (
+            "# Experiment IPTS-1 Run 1\n"
+            "# Meta:{not valid json,,,\n"
+            "0.01 1.0 0.01 0.001\n"
+        )
+        data = ReducedParser().parse_content(bad, "bad.txt")
+        assert data.meta is None
+        assert data.experiment_id == "IPTS-1"
+
 
 class TestModelParser:
     """Tests for the model JSON parser."""

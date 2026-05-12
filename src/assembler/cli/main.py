@@ -223,6 +223,14 @@ def find(
     help="Description text for the environment record (e.g. 'Sample cell, flowing N2').",
 )
 @click.option(
+    "--nexus-file",
+    type=str,
+    default=None,
+    help="Path to the raw nexus data file. Populates `raw_file_path` on the "
+    "reflectivity record; overrides any path discovered from parquet metadata. "
+    "Existence is not enforced — the path may reference an archive location.",
+)
+@click.option(
     "--sample-id",
     type=str,
     default=None,
@@ -260,6 +268,7 @@ def ingest(
     model: Optional[str],
     model_dataset_index: Optional[int],
     environment: Optional[str],
+    nexus_file: Optional[str],
     sample_id: Optional[str],
     output: str,
     dry_run: bool,
@@ -315,6 +324,7 @@ def ingest(
         model=model_data,
         environment_description=environment,
         sample_id=sample_id,
+        raw_file_path=nexus_file,
     )
 
     if result.has_errors:
@@ -482,6 +492,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
             model=model_data,
             environment_description=measurement.environment,
             sample_id=sample_id,  # None for first measurement
+            raw_file_path=measurement.nexus_file,
         )
 
         if result.has_errors:

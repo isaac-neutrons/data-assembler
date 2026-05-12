@@ -24,6 +24,7 @@ def build_reflectivity_record(
     needs_review: dict[str, Any],
     instrument_handler: Optional[Type[Instrument]] = None,
     model: Optional[ModelData] = None,
+    raw_file_path_override: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build a reflectivity record from reduced and parquet data.
@@ -71,10 +72,21 @@ def build_reflectivity_record(
 
             raw_file_path = meta.source_path
         else:
-            # Fall back to reduced file header
-            proposal_number = reduced.experiment_id or "Unknown"
-            run_number = str(reduced.run_number) if reduced.run_number else "Unknown"
-            run_title = reduced.run_title or "Unknown"
+            # Fall back to reduced file header, preferring the structured
+            # `# Meta:{...}` JSON block when present (canonical types and
+            # ISO 8601 timestamps) over regex-parsed header lines.
+            meta = reduced.meta or {}
+
+            proposal_number = (
+                meta.get("experiment") or reduced.experiment_id or "Unknown"
+            )
+            meta_run = meta.get("run_number")
+            run_number = (
+                str(meta_run)
+                if meta_run is not None
+                else (str(reduced.run_number) if reduced.run_number else "Unknown")
+            )
+            run_title = meta.get("run_title") or reduced.run_title or "Unknown"
             instrument = extract_instrument(reduced.file_path) or "Unknown"
 
             # Get instrument handler
@@ -82,11 +94,26 @@ def build_reflectivity_record(
                 instrument_handler = InstrumentRegistry.get_handler(instrument)
 
             facility = instrument_handler.defaults.facility
-            run_start = reduced.run_start_time or datetime.now(timezone.utc)
+
+            run_start = None
+            meta_start = meta.get("start_time")
+            if meta_start:
+                try:
+                    run_start = datetime.fromisoformat(meta_start.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    warnings.append(f"Could not parse Meta.start_time: {meta_start}")
+            if run_start is None:
+                run_start = reduced.run_start_time or datetime.now(timezone.utc)
+
             raw_file_path = None
 
             if proposal_number == "Unknown":
                 warnings.append("Proposal number not found, using 'Unknown'")
+
+        # Explicit override (e.g. CLI --nexus-file) takes precedence over
+        # whatever was discovered from parquet metadata or left as None.
+        if raw_file_path_override:
+            raw_file_path = raw_file_path_override
 
         logger.debug(f"Using instrument handler: {instrument_handler.name}")
 

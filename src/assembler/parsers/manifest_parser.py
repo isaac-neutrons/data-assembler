@@ -23,6 +23,7 @@ class ManifestMeasurement:
     name: str
     reduced: str
     parquet: Optional[str] = None
+    nexus_file: Optional[str] = None
     model: Optional[str] = None
     model_dataset_index: Optional[int] = None
     environment: Optional[str] = None
@@ -133,6 +134,7 @@ class ManifestParser:
 
           - name: "Final OCV"
             reduced: /path/to/REFL_218393_reduced.txt
+            nexus_file: /path/to/REF_L_218393.nxs.h5
             model: /path/to/model.json
             model_dataset_index: 2
             environment: "Electrochemical cell, THF electrolyte, final OCV"
@@ -206,6 +208,7 @@ class ManifestParser:
                     name=name,
                     reduced=m_data.get("reduced", ""),
                     parquet=m_data.get("parquet"),
+                    nexus_file=m_data.get("nexus_file"),
                     model=m_data.get("model"),
                     model_dataset_index=m_data.get("model_dataset_index"),
                     environment=m_data.get("environment"),

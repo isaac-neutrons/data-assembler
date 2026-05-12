@@ -5,13 +5,17 @@ Parses the text file format output by the SNS reduction software,
 extracting header metadata and Q/R/dR/dQ data columns.
 """
 
+import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from dateutil import parser as date_parser
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +43,9 @@ class ReducedData:
     run_title: Optional[str] = None
     run_start_time: Optional[datetime] = None
     reduction_time: Optional[datetime] = None
+
+    # Optional structured metadata block (`# Meta:{...}` JSON in some files)
+    meta: Optional[dict[str, Any]] = None
 
     # Run info (for multi-angle datasets)
     runs: list[ReductionRun] = field(default_factory=list)
@@ -94,6 +101,7 @@ class ReducedParser:
         "run_title": re.compile(r"Run title:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
         "run_start": re.compile(r"Run start time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
         "reduction_time": re.compile(r"Reduction time:\s*(.+)$", re.IGNORECASE | re.MULTILINE),
+        "meta": re.compile(r"^Meta\s*:\s*(\{.*)$", re.IGNORECASE | re.MULTILINE),
     }
 
     # Pattern for run info table - extracts two_theta (3rd column)
@@ -205,6 +213,14 @@ class ReducedParser:
                 result.reduction_time = date_parser.parse(match.group(1).strip())
             except (ValueError, TypeError):
                 pass
+
+        # Extract optional Meta JSON block
+        match = self.PATTERNS["meta"].search(full_header)
+        if match:
+            try:
+                result.meta = json.loads(match.group(1).strip())
+            except json.JSONDecodeError as e:
+                logger.warning("Could not parse Meta JSON in reduced header: %s", e)
 
         # Extract run info table (two_theta values)
         for match in self.RUN_TABLE_PATTERN.finditer(full_header):

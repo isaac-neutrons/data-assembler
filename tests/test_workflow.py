@@ -164,6 +164,50 @@ class TestDataAssembler:
         
         assert result.sample is not None
 
+    def test_assemble_without_parquet_uses_meta_block(self):
+        """No-parquet ingest of the fixture file populates everything except raw_file_path."""
+        from assembler.parsers.reduced_parser import ReducedParser
+
+        fixture = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+        reduced_data = ReducedParser().parse(fixture)
+
+        result = DataAssembler().assemble(reduced=reduced_data)
+
+        assert result.reflectivity is not None
+        refl = result.reflectivity
+        assert refl["proposal_number"] == "IPTS-36897"
+        assert refl["run_number"] == "226659"
+        assert refl["run_title"] == "Sample_5-226658-2."
+        assert refl["run_start"].year == 2026
+        assert refl["instrument_name"] == "REF_L"
+        assert refl["raw_file_path"] is None  # only gap when parquet is absent
+        assert len(refl["q"]) > 0
+
+    def test_assemble_raw_file_path_override(self):
+        """raw_file_path arg overrides whatever parquet would have supplied."""
+        reduced_data = ReducedData(
+            file_path="/tmp/REFL_218386.txt",
+            q=[0.01], r=[1.0], dr=[0.01], dq=[0.001],
+        )
+        parquet_data = ParquetData(
+            metadata=MetadataRecord(
+                instrument_id="REF_L",
+                run_number=218386,
+                run_id="REF_L_218386",
+                title="t",
+                start_time="2024-01-15T00:00:00Z",
+                experiment_identifier="IPTS-1",
+                source_path="/old/path.nxs.h5",
+            ),
+        )
+
+        result = DataAssembler().assemble(
+            reduced=reduced_data,
+            parquet=parquet_data,
+            raw_file_path="/override/path.nxs.h5",
+        )
+        assert result.reflectivity["raw_file_path"] == "/override/path.nxs.h5"
+
     def test_assemble_creates_environment(self):
         """Test that assembler creates Environment from metadata."""
         assembler = DataAssembler()

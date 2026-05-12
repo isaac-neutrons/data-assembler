@@ -56,6 +56,7 @@ class DataAssembler:
         model: Optional[ModelData] = None,
         environment_description: Optional[str] = None,
         sample_id: Optional[str] = None,
+        raw_file_path: Optional[str] = None,
     ) -> AssemblyResult:
         """
         Assemble data from parsed sources into schema-ready records.
@@ -75,6 +76,9 @@ class DataAssembler:
             environment_description: Optional description text for the environment record
             sample_id: Optional UUID of an existing sample to link to instead of
                 creating a new sample record
+            raw_file_path: Optional path to the raw data (nexus) file. When provided,
+                this overrides any path discovered in parquet metadata and is used
+                to populate the reflectivity record's `raw_file_path` field.
 
         Returns:
             AssemblyResult with assembled records and any issues
@@ -116,6 +120,7 @@ class DataAssembler:
             errors=result.errors,
             needs_review=result.needs_review,
             model=model,
+            raw_file_path_override=raw_file_path,
         )
 
         # Step 2: Build Environment record from parquet daslogs

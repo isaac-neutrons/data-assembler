@@ -120,6 +120,38 @@ class TestCLIIngest:
         refl_dirs = list(output_dir.glob("reflectivity/**/*.parquet"))
         assert len(refl_dirs) >= 1
 
+    def test_ingest_nexus_file_populates_raw_file_path(self, tmp_path):
+        """--nexus-file should populate raw_file_path even without parquet."""
+        reduced_file = tmp_path / "REFL_218386_test.txt"
+        reduced_file.write_text(
+            "# Experiment IPTS-12345 Run 218386\n"
+            "# Run title: Test sample\n"
+            "# Run start time: 2024-01-15T10:30:00\n"
+            "# Q [1/Angstrom] R dR dQ\n"
+            "0.01 1.0 0.1 0.001\n"
+            "0.02 0.9 0.1 0.001\n"
+        )
+        output_dir = tmp_path / "output"
+        nexus_path = "/archive/SNS/REF_L/IPTS-12345/nexus/REF_L_218386.nxs.h5"
+
+        result = app(
+            [
+                "ingest",
+                "--reduced",
+                str(reduced_file),
+                "--nexus-file",
+                nexus_path,
+                "--output",
+                str(output_dir),
+                "--json",
+            ]
+        )
+        assert result == 0
+
+        with open(output_dir / "json" / "reflectivity.json") as f:
+            data = json.load(f)
+        assert data["raw_file_path"] == nexus_path
+
     def test_ingest_writes_manifest_json(self, tmp_path):
         """Test ingest --json writes JSON files to output directory."""
         reduced_file = tmp_path / "REFL_218386_test.txt"
