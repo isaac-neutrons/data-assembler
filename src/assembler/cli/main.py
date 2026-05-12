@@ -22,8 +22,8 @@ from assembler.tools import FileFinder
 from assembler.tools.detection import detect_file, extract_run_number
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers.json_writer import write_assembly_to_json
-from assembler.writers.ravendb_writer import write_assembly_to_ravendb
 from assembler.writers.parquet_writer import ParquetWriter, write_assembly_to_parquet
+from assembler.writers.ravendb_writer import write_assembly_to_ravendb
 
 
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
@@ -241,7 +241,10 @@ def find(
     "--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)"
 )
 @click.option(
-    "--ravendb", "as_ravendb", is_flag=True, help="Also store them in RavenDB (in addition to Parquet)"
+    "--ravendb",
+    "as_ravendb",
+    is_flag=True,
+    help="Also store them in RavenDB (in addition to Parquet)",
 )
 @click.option(
     "--debug",
@@ -445,9 +448,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
         try:
             reduced_data = reduced_parser.parse(measurement.reduced)
         except Exception as e:
-            raise click.ClickException(
-                f"{step} Error parsing reduced file: {e}"
-            )
+            raise click.ClickException(f"{step} Error parsing reduced file: {e}")
 
         # Parse parquet (optional)
         parquet_data = None
@@ -458,9 +459,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
                     measurement.parquet, run_number=run_number
                 )
             except Exception as e:
-                raise click.ClickException(
-                    f"{step} Error parsing parquet files: {e}"
-                )
+                raise click.ClickException(f"{step} Error parsing parquet files: {e}")
 
         # Parse model (optional)
         model_data = None
@@ -468,16 +467,13 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
         if model_file:
             # Determine dataset index: measurement-level overrides sample-level
             ds_index_1based = (
-                measurement.model_dataset_index
-                or manifest_data.sample.model_dataset_index
+                measurement.model_dataset_index or manifest_data.sample.model_dataset_index
             )
             ds_index = (ds_index_1based - 1) if ds_index_1based is not None else None
             try:
                 model_data = model_parser.parse(model_file, dataset_index=ds_index)
             except Exception as e:
-                raise click.ClickException(
-                    f"{step} Error parsing model file: {e}"
-                )
+                raise click.ClickException(f"{step} Error parsing model file: {e}")
 
         # Assemble
         result = assembler.assemble(
@@ -489,7 +485,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
         )
 
         if result.has_errors:
-            click.echo(click.style(f"  Errors:", fg="red"), err=True)
+            click.echo(click.style("  Errors:", fg="red"), err=True)
             for error in result.errors:
                 click.echo(f"    - {error}", err=True)
             sys.exit(1)
@@ -531,10 +527,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
             rm = result.reflectivity_model
             ds_idx = rm.get("dataset_index")
             ds_display = ds_idx + 1 if ds_idx is not None else "?"
-            click.echo(
-                f"  Model: dataset {ds_display}"
-                f" of {rm.get('num_experiments', '?')}"
-            )
+            click.echo(f"  Model: dataset {ds_display} of {rm.get('num_experiments', '?')}")
 
         # Write output (unless dry run)
         if not dry_run:
@@ -543,7 +536,11 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
 
                 if as_json:
                     # Write per-measurement JSON (use run number subfolder to avoid overwrites)
-                    run_num = result.reflectivity.get("run_number", f"m{i+1}") if result.reflectivity else f"m{i+1}"
+                    run_num = (
+                        result.reflectivity.get("run_number", f"m{i + 1}")
+                        if result.reflectivity
+                        else f"m{i + 1}"
+                    )
                     json_dir = output_path / "json" / str(run_num)
                     json_paths = write_assembly_to_json(result, json_dir)
                     for name, path in json_paths.items():
@@ -553,9 +550,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
                     all_paths.setdefault(table_name, []).append(str(path))
 
             except Exception as e:
-                raise click.ClickException(
-                    f"{step} Error writing output: {e}"
-                )
+                raise click.ClickException(f"{step} Error writing output: {e}")
 
         click.echo()
 
@@ -571,6 +566,7 @@ def batch(config: Config, manifest: str, dry_run: bool, as_json: bool) -> None:
                 json_dir = output_path / "json"
                 json_dir.mkdir(parents=True, exist_ok=True)
                 from assembler.writers.json_writer import JSONWriter
+
                 json_writer = JSONWriter(json_dir)
                 json_writer.write_sample(sample_record)
         except Exception as e:
@@ -849,9 +845,7 @@ def _print_assembly_summary(result: AssemblyResult) -> None:
     if result.reflectivity_model:
         rm = result.reflectivity_model
         click.echo(f"  Reflectivity Model: {rm.get('model_name', 'Unknown')}")
-        click.echo(
-            f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}"
-        )
+        click.echo(f"    Software: {rm.get('software', '?')} {rm.get('software_version', '')}")
         click.echo(f"    Experiments: {rm.get('num_experiments', 0)}")
         click.echo(
             f"    Parameters: {rm.get('num_free_parameters', 0)} free / "

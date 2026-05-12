@@ -29,7 +29,7 @@ from .base import (
 
 
 @InstrumentRegistry.register
-class REF_L(Instrument):
+class REF_L(Instrument):  # noqa: N801
     """
     Handler for the REF_L (Liquids Reflectometer) at SNS.
 

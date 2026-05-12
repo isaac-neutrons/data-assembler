@@ -137,9 +137,7 @@ class JSONWriter:
             paths["environment"] = self.write_environment(result.environment)
 
         if result.reflectivity_model:
-            paths["reflectivity_model"] = self.write_reflectivity_model(
-                result.reflectivity_model
-            )
+            paths["reflectivity_model"] = self.write_reflectivity_model(result.reflectivity_model)
 
         return paths
 

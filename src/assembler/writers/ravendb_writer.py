@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from assembler.workflow import AssemblyResult
 import requests
 
+from assembler.workflow import AssemblyResult
+
 HOSTNAME = "http://0.0.0.0:3000"
+
 
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for datetime, UUID, and Path objects."""
@@ -75,19 +77,19 @@ class RavenDBWriter:
         db_record["reduction_time"] = record["reduction_time"].isoformat()
         db_record["reduction_version"] = record["reduction_version"]
 
-        url=HOSTNAME+"/api/reflectivity/create"
+        url = HOSTNAME + "/api/reflectivity/create"
         response = requests.post(url, json=db_record)
 
         if response.status_code == 201:
             db_object = response.json()
-            print(f"Saved Reflectivty Id: {db_object['Id']}")   
+            print(f"Saved Reflectivty Id: {db_object['Id']}")
             return db_object["Id"]
         else:
             print(f"Request failed with status code: {response.status_code}")
             print(f"Response: {response.json()}")
             return None
 
-    def write_sample(self, record: dict[str, Any],env_id) -> str:
+    def write_sample(self, record: dict[str, Any], env_id) -> str:
         """
         Write a sample record to DB.
 
@@ -104,14 +106,14 @@ class RavenDBWriter:
         db_record["geometry"] = record["geometry"]
         db_record["layers"] = record["layers"]
         db_record["substrate"] = record["substrate"]
-        url=HOSTNAME+"/api/sample/create"
+        url = HOSTNAME + "/api/sample/create"
         response = requests.post(url, json=db_record)
 
         if response.status_code == 201:
             # print(f"Status Code: {response.status_code}")
             db_object = response.json()
-            #print(f"Saved Object: {db_object}") 
-            print(f"Saved Sample Id: {db_object['Id']}") 
+            # print(f"Saved Object: {db_object}")
+            print(f"Saved Sample Id: {db_object['Id']}")
             return db_object["Id"]
         else:
             print(f"Request failed with status code: {response.status_code}")
@@ -135,20 +137,21 @@ class RavenDBWriter:
         db_record["pressure"] = record["pressure"]
         db_record["potential"] = record["potential"]
         db_record["relative_humidity"] = record["relative_humidity"]
-        db_record["measurements_ids"] =  [m_id]
+        db_record["measurements_ids"] = [m_id]
 
-        url=HOSTNAME+"/api/environment/create"
+        url = HOSTNAME + "/api/environment/create"
         response = requests.post(url, json=db_record)
 
         if response.status_code == 201:
             # print(f"Status Code: {response.status_code}")
             db_object = response.json()
-            print(f"Saved Environment Id: {db_object['Id']}") 
+            print(f"Saved Environment Id: {db_object['Id']}")
             return db_object["Id"]
         else:
             print(f"Request failed with status code: {response.status_code}")
             print(f"Response: {response.json()}")
             return None
+
     def write_all(self, result: AssemblyResult) -> dict[str, str]:
         """
         Write all assembled data to JSON files.
@@ -164,13 +167,13 @@ class RavenDBWriter:
         env_id = None
         if result.reflectivity:
             ref_id = self.write_reflectivity(result.reflectivity)
-            paths["reflectivity"] = HOSTNAME+'/api/reflectivity/get/'+ref_id
+            paths["reflectivity"] = HOSTNAME + "/api/reflectivity/get/" + ref_id
         if result.environment:
-            env_id = self.write_environment(result.environment,ref_id)
-            paths["environment"] = HOSTNAME+'/api/environment/get/'+env_id
+            env_id = self.write_environment(result.environment, ref_id)
+            paths["environment"] = HOSTNAME + "/api/environment/get/" + env_id
         if result.sample:
-            sample_id=self.write_sample(result.sample,env_id)
-            paths["sample"] = HOSTNAME+'/api/sample/get/'+sample_id
+            sample_id = self.write_sample(result.sample, env_id)
+            paths["sample"] = HOSTNAME + "/api/sample/get/" + sample_id
 
         return paths
 

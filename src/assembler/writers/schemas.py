@@ -12,8 +12,8 @@ material = pa.struct(
         ("name", pa.string()),
         ("mass", pa.float64()),
         ("density", pa.float64()),
-        ("sld", pa.float64()), #rho
-        ("isld", pa.float64()), #irho
+        ("sld", pa.float64()),  # rho
+        ("isld", pa.float64()),  # irho
     ]
 )
 
@@ -39,7 +39,11 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("probe", pa.string()),
         ("technique", pa.string()),
         ("technique_description", pa.string()),
-        pa.field("is_simulated", pa.bool_(), metadata={b'description': b'Indicates if the measurement is simulated data'}),
+        pa.field(
+            "is_simulated",
+            pa.bool_(),
+            metadata={b"description": b"Indicates if the measurement is simulated data"},
+        ),
         ("run_title", pa.string()),
         ("run_number", pa.string()),
         ("run_start", pa.timestamp("us", tz="UTC")),
@@ -49,7 +53,7 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("measurement_geometry", pa.string()),
         ("reduction_time", pa.timestamp("us", tz="UTC")),
         ("reduction_version", pa.string()),
-        pa.field("q",pa.list_(pa.float64()),metadata={b'units': b'the units'}),
+        pa.field("q", pa.list_(pa.float64()), metadata={b"units": b"the units"}),
         ("r", pa.list_(pa.float64())),
         ("dr", pa.list_(pa.float64())),
         ("dq", pa.list_(pa.float64())),
@@ -68,19 +72,18 @@ SAMPLE_SCHEMA = pa.schema(
         ("geometry", pa.string()),
         ("environment_ids", pa.list_(pa.string())),
         # Layers as JSON string (nested struct alternative)
-        #("layers_json", pa.string()),
+        # ("layers_json", pa.string()),
         (
             "layers",
             pa.list_(
-                #layers are already sorted
+                # layers are already sorted
                 layer
             ),
         ),
         # subrater is one layer
-        ("substrate",layer),
-        #for publications
+        ("substrate", layer),
+        # for publications
         ("publication_ids", pa.list_(pa.string())),
-
     ]
 )
 
@@ -101,7 +104,6 @@ ENVIRONMENT_SCHEMA = pa.schema(
         # Relationship field (environment -> measurements)
         ("measurement_ids", pa.list_(pa.string())),
         ("timestamp", pa.timestamp("us", tz="UTC")),
-
     ]
 )
 
@@ -123,7 +125,13 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
         ("schema_version", pa.string()),
         # Fit summary
         ("num_experiments", pa.int32()),
-        pa.field("dataset_index", pa.int32(), metadata={b'description': b'0-based index of the selected dataset in a co-refinement model, null for single-experiment models'}),
+        pa.field(
+            "dataset_index",
+            pa.int32(),
+            metadata={
+                b"description": b"0-based index of the selected dataset in a co-refinement model, null for single-experiment models"
+            },
+        ),
         ("num_parameters", pa.int32()),
         ("num_free_parameters", pa.int32()),
         # Layer summary extracted from the selected experiment

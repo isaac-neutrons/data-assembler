@@ -116,6 +116,7 @@ class Instrument(ABC):
                 log = parquet.daslogs[name]
                 if prefer_average and log.average_value is not None:
                     import math
+
                     if not math.isnan(log.average_value):
                         return log.average_value
                 if log.value_numeric is not None:
