@@ -192,9 +192,10 @@ def find(
 @click.option(
     "--reduced",
     "-r",
-    required=True,
+    default=None,
     type=click.Path(exists=True),
-    help="Path to reduced reflectivity data file (.txt)",
+    help="Path to reduced reflectivity data file (.txt). "
+    "Required unless supplied via --state-in.",
 )
 @click.option(
     "--parquet",
@@ -205,8 +206,10 @@ def find(
 @click.option(
     "--model",
     "-m",
+    default=None,
     type=click.Path(exists=True),
-    help="Path to refl1d/bumps model JSON file",
+    help="Path to refl1d/bumps model JSON file. "
+    "Optional unless supplied via --state-in.",
 )
 @click.option(
     "--model-dataset-index",
@@ -240,9 +243,10 @@ def find(
 @click.option(
     "--output",
     "-o",
-    required=True,
+    default=None,
     type=click.Path(),
-    help="Output directory for parquet files",
+    help="Output directory for parquet files. "
+    "Required unless supplied via --state-in (uses paths.output_directory/assembled).",
 )
 @click.option("--dry-run", is_flag=True, help="Parse and assemble but don't write output")
 @click.option(
@@ -260,21 +264,40 @@ def find(
     is_flag=True,
     help="Write debug JSON with full schema and missing field indicators",
 )
+@click.option(
+    "--state-in",
+    "state_in",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Read a v1 workflow-state JSON. Missing --reduced / --output / --model / "
+    "--nexus-file are filled from reduction.result_file / "
+    "paths.output_directory+assembled / analysis.problem_json / paths.raw_data.",
+)
+@click.option(
+    "--state-out",
+    "state_out",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write a v1 workflow-state JSON with the assembly stage metadata "
+    "(ingest_dir, parquet_files). Set on successful ingest only.",
+)
 @pass_config
 def ingest(
     config: Config,
-    reduced: str,
+    reduced: Optional[str],
     parquet: Optional[str],
     model: Optional[str],
     model_dataset_index: Optional[int],
     environment: Optional[str],
     nexus_file: Optional[str],
     sample_id: Optional[str],
-    output: str,
+    output: Optional[str],
     dry_run: bool,
     as_json: bool,
     as_ravendb: bool,
     debug_output: bool,
+    state_in: Optional[str],
+    state_out: Optional[str],
 ) -> None:
     """Ingest data and write to parquet.
 
@@ -285,6 +308,39 @@ def ingest(
         data-assembler ingest --reduced REF_L_218386.txt --parquet ./parquet/ --output ./lakehouse/
     """
     logger = logging.getLogger("ingest")
+
+    # Resolve missing inputs from --state-in (v1 workflow state).
+    from assembler.state import empty_state, load_state, save_state, update_stage, _path
+
+    wstate: dict = load_state(state_in) if state_in else empty_state()
+    if state_in:
+        if reduced is None:
+            candidate = (wstate.get("reduction") or {}).get("result_file") or ""
+            if candidate:
+                reduced = candidate
+        if output is None:
+            base = _path(wstate, "output_directory")
+            if base:
+                output = str(Path(base) / "assembled")
+        if model is None:
+            analysis = wstate.get("analysis") or {}
+            if analysis.get("success") and analysis.get("problem_json"):
+                model = analysis["problem_json"]
+        if nexus_file is None:
+            nexus_file = (
+                _path(wstate, "raw_data") or _path(wstate, "event_file") or None
+            )
+
+    if reduced is None:
+        raise click.UsageError(
+            "--reduced is required (or supply reduction.result_file via --state-in)."
+        )
+    if output is None:
+        raise click.UsageError(
+            "--output is required (or supply paths.output_directory via --state-in)."
+        )
+    if not Path(reduced).is_file():
+        raise click.UsageError(f"--reduced does not exist: {reduced}")
 
     # Parse input files
     logger.info(f"Parsing reduced file: {reduced}")
@@ -391,6 +447,20 @@ def ingest(
             click.echo(f"  {table_name}: {path}")
     except Exception as e:
         raise click.ClickException(f"Error writing output: {e}")
+
+    if state_out is not None:
+        wstate.setdefault("paths", {})["assembled_directory"] = str(output_path.resolve())
+        update_stage(
+            wstate,
+            "assembly",
+            metadata={
+                "ingest_dir": str(output_path.resolve()),
+                "ingest_status": "completed",
+                "parquet_files": {k: str(v) for k, v in paths.items()},
+            },
+        )
+        save_state(wstate, state_out)
+        click.echo(click.style(f"State written: {Path(state_out).resolve()}", fg="green"))
 
 
 @cli.command()
