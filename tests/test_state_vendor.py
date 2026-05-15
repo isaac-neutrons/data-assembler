@@ -74,7 +74,8 @@ def test_vendored_state_migrates_v0(tmp_path):
     )
     s = load_state(str(p))
     assert s["schema_version"] == "1"
-    assert s["reduction"]["result_file"] == "/r.txt"
+    assert s["reduction"]["partial_file"] == "/r.txt"
+    assert "result_file" not in s["reduction"]
     assert s["analysis"]["problem_json"] == "/m.json"
     assert s["analysis"]["success"] is True
     assert s["paths"]["raw_data"] == "/raw.h5"
