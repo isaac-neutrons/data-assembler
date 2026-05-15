@@ -55,29 +55,19 @@ def test_vendored_state_roundtrip(tmp_path):
     assert s2["assembly"]["isaac_record"] == "/r.json"
 
 
-def test_vendored_state_migrates_v0(tmp_path):
-    """Old flat-key state files still load."""
-    import json
+def test_vendored_build_state_from_flat():
+    """build_state translates a flat operator-facing dict to nested v1."""
+    from assembler.state import build_state
 
-    from assembler.state import load_state
-
-    p = tmp_path / "v0.json"
-    p.write_text(
-        json.dumps(
-            {
-                "result_file": "/r.txt",
-                "final_model": "/m.json",
-                "model_available": True,
-                "raw_data": "/raw.h5",
-            }
-        )
-    )
-    s = load_state(str(p))
+    s = build_state({
+        "raw_data": "/raw.h5",
+        "output_directory": "/out",
+        "llm_model": "gpt-4",
+    })
     assert s["schema_version"] == "1"
-    assert s["reduction"]["result_file"] == "/r.txt"
-    assert s["analysis"]["problem_json"] == "/m.json"
-    assert s["analysis"]["success"] is True
     assert s["paths"]["raw_data"] == "/raw.h5"
+    assert s["paths"]["output_directory"] == "/out"
+    assert s["llm"]["model"] == "gpt-4"
 
 
 def test_no_drift_against_ndip_workflows():

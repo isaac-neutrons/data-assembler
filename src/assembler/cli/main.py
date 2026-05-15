@@ -270,7 +270,7 @@ def find(
     type=click.Path(exists=True, dir_okay=False),
     default=None,
     help="Read a v1 workflow-state JSON. Missing --reduced / --output / --model / "
-    "--nexus-file are filled from reduction.result_file / "
+    "--nexus-file are filled from reduction.partial_file / "
     "paths.output_directory+assembled / analysis.problem_json / paths.raw_data.",
 )
 @click.option(
@@ -315,7 +315,7 @@ def ingest(
     wstate: dict = load_state(state_in) if state_in else empty_state()
     if state_in:
         if reduced is None:
-            candidate = (wstate.get("reduction") or {}).get("result_file") or ""
+            candidate = (wstate.get("reduction") or {}).get("partial_file") or ""
             if candidate:
                 reduced = candidate
         if output is None:
@@ -333,7 +333,7 @@ def ingest(
 
     if reduced is None:
         raise click.UsageError(
-            "--reduced is required (or supply reduction.result_file via --state-in)."
+            "--reduced is required (or supply reduction.partial_file via --state-in)."
         )
     if output is None:
         raise click.UsageError(

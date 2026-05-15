@@ -37,7 +37,7 @@ def test_state_in_supplies_reduced_and_output(tmp_path):
     out_root = tmp_path / "shared"
 
     wstate = empty_state()
-    update_stage(wstate, "reduction", result_file=str(reduced))
+    update_stage(wstate, "reduction", partial_file=str(reduced))
     wstate["paths"]["output_directory"] = str(out_root)
     state_path = tmp_path / "state.json"
     save_state(wstate, str(state_path))
@@ -51,7 +51,7 @@ def test_state_in_supplies_reduced_and_output(tmp_path):
 
 
 def test_state_in_missing_reduced_errors(tmp_path):
-    """state-in present but reduction.result_file empty -> UsageError."""
+    """state-in present but reduction.partial_file empty -> UsageError."""
     wstate = empty_state()
     wstate["paths"]["output_directory"] = str(tmp_path / "out")
     state_path = tmp_path / "state.json"
@@ -62,7 +62,7 @@ def test_state_in_missing_reduced_errors(tmp_path):
 
 
 def test_cli_overrides_state_in(tmp_path):
-    """Explicit --reduced wins over state.reduction.result_file."""
+    """Explicit --reduced wins over state.reduction.partial_file."""
     cli_reduced = _make_reduced(tmp_path)
     state_only_reduced = tmp_path / "WILL_NOT_BE_USED.txt"
     state_only_reduced.write_text(_REDUCED_HEADER)
@@ -113,7 +113,7 @@ def test_state_in_propagates_to_state_out(tmp_path):
     wstate = empty_state()
     wstate["run"] = 218386
     wstate["paths"]["event_file"] = "/SNS/foo.h5"
-    update_stage(wstate, "reduction", result_file=str(reduced))
+    update_stage(wstate, "reduction", partial_file=str(reduced))
     wstate["paths"]["output_directory"] = str(tmp_path / "out_root")
     state_path = tmp_path / "in_state.json"
     save_state(wstate, str(state_path))
@@ -124,4 +124,4 @@ def test_state_in_propagates_to_state_out(tmp_path):
     s = load_state(str(state_out))
     assert s["run"] == 218386
     assert s["paths"]["event_file"] == "/SNS/foo.h5"
-    assert s["reduction"]["result_file"] == str(reduced)
+    assert s["reduction"]["partial_file"] == str(reduced)
