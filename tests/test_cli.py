@@ -200,6 +200,54 @@ class TestCLIIngest:
         assert int(data["run_number"]) == 218386
         assert len(data["q"]) == 2
 
+    def test_ingest_writes_result_manifest(self, tmp_path):
+        """--result-out writes a neutral ndip-tool-result/1 manifest."""
+        reduced_file = tmp_path / "REFL_218386_test.txt"
+        reduced_file.write_text("""# Experiment IPTS-12345
+# Run 218386
+# Reduction timestamp: 2025-01-01 12:00:00
+# Q [1/Angstrom] R dR dQ
+0.01 1.0 0.1 0.001
+0.02 0.9 0.1 0.001
+""")
+
+        output_dir = tmp_path / "output"
+        result_out = tmp_path / "result.json"
+        nexus_path = "/archive/SNS/REF_L/IPTS-12345/nexus/REF_L_218386.nxs.h5"
+        result = app(
+            [
+                "ingest",
+                "--reduced", str(reduced_file),
+                "--nexus-file", nexus_path,
+                "--output", str(output_dir),
+                "--result-out", str(result_out),
+            ]
+        )
+        assert result == 0
+
+        with open(result_out) as f:
+            m = json.load(f)
+        assert m["tool"] == "data-assembler"
+        assert m["schema"] == "ndip-tool-result/1"
+        assert m["status"] == "ok"
+        assert m["params"]["reduced_input"] == str(reduced_file)
+        assert m["params"]["nexus_input"] == nexus_path
+        # model omitted -> dropped from params
+        assert "model_input" not in m["params"]
+        assert m["artifacts"]["ingest_dir"] == str(output_dir.resolve())
+        assert "reflectivity" in m["artifacts"]["parquet_files"]
+        assert m["info"]["ingest_status"] == "completed"
+
+    def test_ingest_has_no_state_options(self):
+        """The state-IO flags are gone; only --result-out remains."""
+        result = app(["ingest", "--help"])
+        assert result == 0
+
+    def test_ingest_requires_reduced(self):
+        """Missing --reduced is a clean usage error (no state fallback)."""
+        result = app(["ingest", "--output", "/tmp/out_xyz"])
+        assert result != 0
+
 
 class TestCLIHelp:
     """Tests for CLI help."""
