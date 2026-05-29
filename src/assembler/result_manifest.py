@@ -12,7 +12,7 @@ This module is deliberately dependency-free and schema-agnostic.
 from __future__ import annotations
 
 import json
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import packages_distributions, version
 from typing import Any, Dict, List, Optional
 
 SCHEMA = "ndip-tool-result/1"
@@ -22,10 +22,17 @@ VALID_STATUS = {"ok", "failed", "skipped", "dry-run", "needs-reprocessing"}
 
 
 def _tool_version() -> str:
+    # Auto-derive the installed distribution version for whatever top-level
+    # package vendors this module (analyzer_tools | assembler | nr_isaac_format),
+    # so this file stays byte-identical across the repos that share it.
     try:
-        return version("data-assembler")
-    except PackageNotFoundError:  # pragma: no cover - editable/source runs
-        return "unknown"
+        top = __name__.split(".")[0]
+        dists = packages_distributions().get(top)
+        if dists:
+            return version(dists[0])
+    except Exception:  # pragma: no cover - editable/source runs
+        pass
+    return "unknown"
 
 
 def build_manifest(
