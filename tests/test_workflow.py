@@ -2,6 +2,7 @@
 Tests for workflow components (Phase 1B).
 """
 
+import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -471,3 +472,69 @@ class TestIntegration:
                 pf = pq.ParquetFile(str(path))
                 table = pf.read()
                 assert table.num_rows == 1
+
+
+class TestAssembleWorkflow:
+    """Pull-based ingestion from a standard refl1d/AuRE workflow run directory."""
+
+    def _make_run_dir(self, tmp_path):
+        run = tmp_path / "run"
+        run.mkdir()
+        reduced = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+        (run / "run_info.json").write_text(
+            json.dumps(
+                {
+                    "data_file": str(reduced),
+                    "data_files": [{"file": str(reduced), "label": "REFL_226658"}],
+                    "sample_description": "Cu / Ti on Si",
+                }
+            )
+        )
+        (run / "final_state.json").write_text(
+            json.dumps(
+                {
+                    "final_chi2": 1.23,
+                    "state": {
+                        "best_chi2": 1.23,
+                        "states": [
+                            {"extra_description": "OCV in 0.1 M NaHCO3 electrolyte, pH 8.25"}
+                        ],
+                    },
+                }
+            )
+        )
+        return run
+
+    def test_pull_parses_conditions_into_environment(self, tmp_path):
+        run = self._make_run_dir(tmp_path)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        assert result.reflectivity is not None
+        env = result.environment
+        assert env is not None
+        assert env["control_mode"] == "open_circuit"
+        assert env["pH"] == 8.25
+        assert env["electrolyte"] == {"name": "NaHCO3", "concentration_M": 0.1}
+        # description carried verbatim from the run state
+        assert "OCV" in env["description"]
+
+    def test_missing_run_info_is_an_error(self, tmp_path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        result = DataAssembler().assemble_workflow(empty)
+        assert result.has_errors
+
+    def test_read_fit_state_prefers_final_state(self, tmp_path):
+        run = self._make_run_dir(tmp_path)
+        chi, extra = DataAssembler._read_fit_state(run)
+        assert chi == 1.23
+        assert "OCV" in extra
+
+    def test_find_err_json_locates_refl1d_output(self, tmp_path):
+        run = tmp_path / "run"
+        (run / "refl1d_output" / "fit_iter0_dream").mkdir(parents=True)
+        err = run / "refl1d_output" / "fit_iter0_dream" / "None-err.json"
+        err.write_text("{}")
+        assert DataAssembler._find_err_json(run) == str(err)
+        assert DataAssembler._find_err_json(tmp_path / "nope") is None

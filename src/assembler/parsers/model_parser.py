@@ -327,7 +327,12 @@ class ModelParser:
         """Initialize the parser."""
         pass
 
-    def parse(self, file_path: str | Path, dataset_index: Optional[int] = None) -> ModelData:
+    def parse(
+        self,
+        file_path: str | Path,
+        dataset_index: Optional[int] = None,
+        err_path: Optional[str | Path] = None,
+    ) -> ModelData:
         """
         Parse a refl1d/bumps model JSON file.
 
@@ -335,6 +340,10 @@ class ModelParser:
             file_path: Path to the JSON file
             dataset_index: 0-based index of the experiment to parse layers from.
                           None means auto-detect later (defaults to first experiment).
+            err_path: Optional explicit path to the fit uncertainty file (refl1d's
+                ``*-err.json``). When given it overrides the default companion
+                lookup — useful when the error file lives in a separate fit-output
+                directory rather than next to the model JSON.
 
         Returns:
             ModelData with parsed structure and parameters
@@ -351,11 +360,12 @@ class ModelParser:
         with open(file_path, "r") as f:
             data = json.load(f)
 
-        # Look for companion error file (<name>-err.json)
+        # Load fit uncertainties: explicit err_path if given, else the companion
+        # error file (<name>-err.json) next to the model.
         error_data = None
-        err_path = file_path.with_name(file_path.stem + "-err.json")
-        if err_path.exists():
-            with open(err_path, "r") as f:
+        resolved_err = Path(err_path) if err_path else file_path.with_name(file_path.stem + "-err.json")
+        if resolved_err.exists():
+            with open(resolved_err, "r") as f:
                 error_data = json.load(f)
 
         return self.parse_dict(
