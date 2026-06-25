@@ -26,6 +26,14 @@ layer = pa.struct(
     ]
 )
 
+# Electrolyte/solution for electrochemical environments
+electrolyte = pa.struct(
+    [
+        ("name", pa.string()),
+        ("concentration_M", pa.float64()),
+    ]
+)
+
 # Schema for Reflectivity measurements
 REFLECTIVITY_SCHEMA = pa.schema(
     [
@@ -99,8 +107,21 @@ ENVIRONMENT_SCHEMA = pa.schema(
         ("ambient_medium", material),
         ("temperature", pa.float64()),
         ("pressure", pa.float64()),
-        ("potential", pa.float64()),
         ("relative_humidity", pa.float64()),
+        # Electrochemical conditions (operando/in-situ)
+        pa.field(
+            "potential",
+            pa.float64(),
+            metadata={b"description": b"Applied potential setpoint on the scale named by potential_scale"},
+        ),
+        ("potential_scale", pa.string()),
+        pa.field(
+            "control_mode",
+            pa.string(),
+            metadata={b"description": b"e.g. open_circuit, potentiostatic, galvanostatic"},
+        ),
+        ("electrolyte", electrolyte),
+        ("pH", pa.float64()),
         # Relationship field (environment -> measurements)
         ("measurement_ids", pa.list_(pa.string())),
         ("timestamp", pa.timestamp("us", tz="UTC")),
@@ -134,6 +155,11 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
         ),
         ("num_parameters", pa.int32()),
         ("num_free_parameters", pa.int32()),
+        pa.field(
+            "chi_squared",
+            pa.float64(),
+            metadata={b"description": b"Reduced chi-squared goodness-of-fit of the model"},
+        ),
         # Layer summary extracted from the selected experiment
         (
             "layers",

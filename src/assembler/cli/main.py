@@ -430,6 +430,73 @@ def ingest(
         click.echo(click.style(f"Result manifest written: {Path(result_out).resolve()}", fg="green"))
 
 
+@cli.command("ingest-workflow")
+@click.argument("run_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--output", "-o", required=True, type=click.Path(), help="Output directory for records.")
+@click.option(
+    "--model-dataset-index",
+    type=int,
+    default=None,
+    help="1-based dataset index for co-refinement models (default: auto-detect).",
+)
+@click.option("--dry-run", is_flag=True, help="Assemble but don't write output")
+@click.option("--json", "as_json", is_flag=True, help="Also write JSON files (in addition to Parquet)")
+@pass_config
+def ingest_workflow(
+    config: Config,
+    run_dir: str,
+    output: str,
+    model_dataset_index: Optional[int],
+    dry_run: bool,
+    as_json: bool,
+) -> None:
+    """Ingest a standard refl1d/AuRE workflow run directory (pull model).
+
+    Pulls everything from RUN_DIR — reduced data (run_info.json), fitted model
+    (problem.json), per-parameter σ (refl1d_output/*-err.json), and χ² +
+    experimental conditions (final_state.json) — and writes the canonical
+    records. The exporter just points here; no manifest is needed.
+
+    Example:
+        data-assembler ingest-workflow ./workflow/230539 --output ./ingest/
+    """
+    logger = logging.getLogger("ingest-workflow")
+
+    ds_index = (model_dataset_index - 1) if model_dataset_index is not None else None
+    assembler = DataAssembler()
+    logger.info(f"Pulling workflow run: {run_dir}")
+    result = assembler.assemble_workflow(run_dir, dataset_index=ds_index)
+
+    if result.has_errors:
+        click.echo(click.style("Assembly errors:", fg="red"), err=True)
+        for error in result.errors:
+            click.echo(f"  - {error}", err=True)
+        sys.exit(1)
+    for warning in result.warnings:
+        click.echo(click.style(f"Warning: {warning}", fg="yellow"), err=True)
+
+    _print_assembly_summary(result)
+
+    if dry_run:
+        click.echo(click.style("\nDry run - no files written", fg="cyan"))
+        return
+
+    output_path = Path(output)
+    output_path.mkdir(parents=True, exist_ok=True)
+    try:
+        paths = write_assembly_to_parquet(result, output_path)
+        if as_json:
+            json_paths = write_assembly_to_json(result, output_path / "json")
+            for name, path in json_paths.items():
+                paths[f"{name}_json"] = path
+    except Exception as e:
+        raise click.ClickException(f"Error writing output: {e}")
+
+    click.echo(click.style("\nOutput files:", fg="green"))
+    for table_name, path in paths.items():
+        click.echo(f"  {table_name}: {path}")
+
+
 @cli.command()
 @click.argument("manifest", type=click.Path(exists=True))
 @click.option("--dry-run", is_flag=True, help="Parse and validate but don't write output")

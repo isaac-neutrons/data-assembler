@@ -4,7 +4,9 @@ Data assembler for combining multiple data sources.
 The main orchestrator for the ingestion workflow.
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from assembler.parsers.model_parser import ModelData
@@ -57,6 +59,8 @@ class DataAssembler:
         environment_description: Optional[str] = None,
         sample_id: Optional[str] = None,
         raw_file_path: Optional[str] = None,
+        conditions: Optional[dict[str, Any]] = None,
+        chi_squared: Optional[float] = None,
     ) -> AssemblyResult:
         """
         Assemble data from parsed sources into schema-ready records.
@@ -132,12 +136,14 @@ class DataAssembler:
                 needs_review=result.needs_review,
                 model=model,
                 description_override=environment_description,
+                conditions=conditions,
             )
-        elif environment_description is not None:
-            # Create a minimal environment record from the description alone
+        elif environment_description is not None or conditions:
+            # Create a minimal environment record from the description/conditions alone
             result.environment = self._build_minimal_environment(
                 description=environment_description,
                 model=model,
+                conditions=conditions,
             )
 
         # Step 3: Build Sample record from model (skip if reusing existing sample)
@@ -167,9 +173,114 @@ class DataAssembler:
                 warnings=result.warnings,
                 errors=result.errors,
                 needs_review=result.needs_review,
+                chi_squared=chi_squared,
             )
 
         return result
+
+    def assemble_workflow(
+        self,
+        run_dir: str | Path,
+        dataset_index: Optional[int] = None,
+        sample_id: Optional[str] = None,
+    ) -> AssemblyResult:
+        """Assemble records by PULLING from a standard refl1d/AuRE run directory.
+
+        Reads, from ``run_dir``:
+          - ``run_info.json``    → reduced data file(s) + sample_description
+          - ``problem.json``     → fitted model
+          - ``refl1d_output/**/<name>-err.json`` → per-parameter σ
+          - ``final_state.json`` → goodness-of-fit χ² + experimental conditions
+            (``state.states[].extra_description``)
+
+        Free-text conditions are parsed into structured electrochemical fields.
+        Returns an AssemblyResult; the caller writes it out (parquet/json).
+        """
+        from assembler.parsers import ModelParser, ReducedParser
+        from assembler.parsers.conditions import parse_conditions
+
+        run_dir = Path(run_dir)
+        result = AssemblyResult()
+
+        run_info_path = run_dir / "run_info.json"
+        if not run_info_path.is_file():
+            result.errors.append(f"run_info.json not found in {run_dir}")
+            return result
+        run_info = json.loads(run_info_path.read_text())
+
+        # Primary reduced curve: first listed data file.
+        data_files = run_info.get("data_files") or []
+        primary = data_files[0].get("file") if data_files else run_info.get("data_file")
+        if not primary or not Path(primary).is_file():
+            result.errors.append(f"Reduced data file from run_info.json not found: {primary}")
+            return result
+        reduced = ReducedParser().parse(primary)
+
+        # Fitted model + σ companion from the refl1d output.
+        model = None
+        problem = run_dir / "problem.json"
+        if problem.is_file():
+            err_path = self._find_err_json(run_dir)
+            model = ModelParser().parse(problem, dataset_index=dataset_index, err_path=err_path)
+
+        # Goodness-of-fit + conditions from the workflow state.
+        chi_squared, extra_description = self._read_fit_state(run_dir)
+        conditions = parse_conditions(extra_description)
+
+        assembled = self.assemble(
+            reduced=reduced,
+            model=model,
+            environment_description=extra_description,
+            conditions=conditions,
+            chi_squared=chi_squared,
+            sample_id=sample_id,
+        )
+
+        # The human sample description is the run's stack summary.
+        sample_description = run_info.get("sample_description")
+        if assembled.sample and sample_description:
+            assembled.sample["description"] = sample_description
+
+        return assembled
+
+    @staticmethod
+    def _find_err_json(run_dir: Path) -> Optional[str]:
+        """Locate the refl1d fit-uncertainty file under ``refl1d_output/``."""
+        output_dir = run_dir / "refl1d_output"
+        if not output_dir.is_dir():
+            return None
+        matches = sorted(output_dir.rglob("*-err.json"))
+        return str(matches[0]) if matches else None
+
+    @staticmethod
+    def _read_fit_state(run_dir: Path) -> tuple[Optional[float], Optional[str]]:
+        """Pull χ² and the experimental-condition text from the workflow state.
+
+        Prefers ``final_state.json``; falls back to
+        ``checkpoints/004_fitting.json``. Returns ``(chi_squared, extra_description)``.
+        """
+
+        def _from_state(state: dict) -> tuple[Optional[float], Optional[str]]:
+            chi = state.get("best_chi2") or state.get("current_chi2")
+            extra = None
+            states = state.get("states") or []
+            if states and isinstance(states[0], dict):
+                extra = states[0].get("extra_description")
+            return chi, extra
+
+        final = run_dir / "final_state.json"
+        if final.is_file():
+            data = json.loads(final.read_text())
+            state = data.get("state") or {}
+            chi2, extra = _from_state(state)
+            return (data.get("final_chi2") if data.get("final_chi2") is not None else chi2), extra
+
+        ckpt = run_dir / "checkpoints" / "004_fitting.json"
+        if ckpt.is_file():
+            data = json.loads(ckpt.read_text())
+            return _from_state(data.get("state") or {})
+
+        return None, None
 
     def _link_record_ids(self, result: AssemblyResult) -> None:
         """
@@ -197,8 +308,9 @@ class DataAssembler:
 
     @staticmethod
     def _build_minimal_environment(
-        description: str,
+        description: Optional[str] = None,
         model: Optional[ModelData] = None,
+        conditions: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """
         Build a minimal environment record when no parquet data is available.
@@ -221,6 +333,7 @@ class DataAssembler:
         if model and model.ambient:
             ambient_medium = model.ambient.material.name
 
+        cond = conditions or {}
         return {
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
@@ -232,8 +345,12 @@ class DataAssembler:
             },
             "temperature": None,
             "pressure": None,
-            "potential": None,
             "relative_humidity": None,
+            "potential": cond.get("potential"),
+            "potential_scale": cond.get("potential_scale"),
+            "control_mode": cond.get("control_mode"),
+            "electrolyte": cond.get("electrolyte"),
+            "pH": cond.get("pH"),
             "measurement_ids": [],
         }
 

@@ -2,27 +2,26 @@
 Tests for workflow components (Phase 1B).
 """
 
+import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 
 from assembler.parsers.model_parser import ModelData, ModelLayer, ModelMaterial
-from assembler.parsers.parquet_parser import ParquetData, MetadataRecord
+from assembler.parsers.parquet_parser import MetadataRecord, ParquetData
 from assembler.parsers.reduced_parser import ReducedData
 from assembler.tools import (
     FileType,
 )
-from assembler.tools.types import FileInfo, RelatedFiles
 from assembler.tools.detection import (
     detect_file_type,
     extract_ipts,
     extract_run_number,
 )
+from assembler.tools.types import FileInfo, RelatedFiles
 from assembler.workflow import AssemblyResult, DataAssembler
 from assembler.writers import ParquetWriter
 from assembler.writers.parquet_writer import write_assembly_to_parquet
@@ -34,8 +33,10 @@ class TestFileDetection:
     def test_detect_reduced_file(self, tmp_path):
         """Test detection of reduced text files."""
         reduced_file = tmp_path / "REFL_218386_reduced.txt"
-        reduced_file.write_text("# Experiment IPTS-12345\n# Q [1/Angstrom]\n# Reduction\n1.0\t0.5\t0.01\t0.001")
-        
+        reduced_file.write_text(
+            "# Experiment IPTS-12345\n# Q [1/Angstrom]\n# Reduction\n1.0\t0.5\t0.01\t0.001"
+        )
+
         file_type = detect_file_type(reduced_file)
         assert file_type == FileType.REDUCED
 
@@ -46,7 +47,7 @@ class TestFileDetection:
         # Create a minimal parquet file
         table = pa.table({"run_number": ["218386"]})
         pq.write_table(table, parquet_file)
-        
+
         file_type = detect_file_type(parquet_file)
         assert file_type == FileType.PARQUET
 
@@ -54,7 +55,7 @@ class TestFileDetection:
         """Test detection of model JSON files."""
         model_file = tmp_path / "model_218386.json"
         model_file.write_text('{"sample": {"layers": []}}')
-        
+
         file_type = detect_file_type(model_file)
         assert file_type == FileType.MODEL
 
@@ -68,10 +69,10 @@ class TestFileDetection:
         """Test IPTS extraction from paths."""
         path = Path("/HFIR/CG1D/IPTS-12345/nexus/file.nxs")
         assert extract_ipts(path) == "IPTS-12345"
-        
+
         path = Path("/data/IPTS-67890/reduced/file.txt")
         assert extract_ipts(path) == "IPTS-67890"
-        
+
         path = Path("/home/user/data/file.txt")
         assert extract_ipts(path) is None
 
@@ -82,7 +83,7 @@ class TestDataAssembler:
     def test_assemble_creates_reflectivity(self):
         """Test that assembler creates Reflectivity from parsed data."""
         assembler = DataAssembler()
-        
+
         # Use proper data classes with required fields
         reduced_data = ReducedData(
             file_path="/tmp/test.txt",
@@ -91,7 +92,7 @@ class TestDataAssembler:
             dr=[0.01, 0.01, 0.02],
             dq=[0.001, 0.001, 0.002],
         )
-        
+
         # Create ParquetData with a MetadataRecord
         parquet_data = ParquetData(
             metadata=MetadataRecord(
@@ -103,12 +104,12 @@ class TestDataAssembler:
                 experiment_identifier="IPTS-12345",
             ),
         )
-        
+
         result = assembler.assemble(
             reduced=reduced_data,
             parquet=parquet_data,
         )
-        
+
         assert isinstance(result, AssemblyResult)
         assert result.reflectivity is not None
         assert result.reflectivity["run_number"] == "218386"
@@ -118,7 +119,7 @@ class TestDataAssembler:
     def test_assemble_creates_sample_from_model(self):
         """Test that assembler creates Sample from model data."""
         assembler = DataAssembler()
-        
+
         reduced_data = ReducedData(
             file_path="/tmp/test.txt",
             q=[0.01, 0.02],
@@ -126,7 +127,7 @@ class TestDataAssembler:
             dr=[0.01, 0.01],
             dq=[0.001, 0.001],
         )
-        
+
         parquet_data = ParquetData(
             metadata=MetadataRecord(
                 instrument_id="REF_L",
@@ -137,7 +138,7 @@ class TestDataAssembler:
                 experiment_identifier="IPTS-12345",
             ),
         )
-        
+
         model_data = ModelData(
             file_path="/tmp/model.json",
             layers=[
@@ -153,15 +154,15 @@ class TestDataAssembler:
                     interface=3.0,
                     material=ModelMaterial(name="Si", rho=2.07),
                 ),
-            ]
+            ],
         )
-        
+
         result = assembler.assemble(
             reduced=reduced_data,
             parquet=parquet_data,
             model=model_data,
         )
-        
+
         assert result.sample is not None
 
     def test_assemble_without_parquet_uses_meta_block(self):
@@ -187,7 +188,10 @@ class TestDataAssembler:
         """raw_file_path arg overrides whatever parquet would have supplied."""
         reduced_data = ReducedData(
             file_path="/tmp/REFL_218386.txt",
-            q=[0.01], r=[1.0], dr=[0.01], dq=[0.001],
+            q=[0.01],
+            r=[1.0],
+            dr=[0.01],
+            dq=[0.001],
         )
         parquet_data = ParquetData(
             metadata=MetadataRecord(
@@ -211,7 +215,7 @@ class TestDataAssembler:
     def test_assemble_creates_environment(self):
         """Test that assembler creates Environment from metadata."""
         assembler = DataAssembler()
-        
+
         reduced_data = ReducedData(
             file_path="/tmp/test.txt",
             q=[0.01, 0.02],
@@ -219,7 +223,7 @@ class TestDataAssembler:
             dr=[0.01, 0.01],
             dq=[0.001, 0.001],
         )
-        
+
         parquet_data = ParquetData(
             metadata=MetadataRecord(
                 instrument_id="REF_L",
@@ -230,16 +234,20 @@ class TestDataAssembler:
                 experiment_identifier="IPTS-12345",
             ),
             daslogs={
-                "SampleTemp": type("DASLog", (), {
-                    "average_value": 298.0,
-                    "min_value": 295.0, 
-                    "max_value": 301.0,
-                })(),
+                "SampleTemp": type(
+                    "DASLog",
+                    (),
+                    {
+                        "average_value": 298.0,
+                        "min_value": 295.0,
+                        "max_value": 301.0,
+                    },
+                )(),
             },
         )
-        
+
         result = assembler.assemble(reduced=reduced_data, parquet=parquet_data)
-        
+
         assert result.environment is not None
         assert result.environment["temperature"] == 298.0
 
@@ -251,7 +259,7 @@ class TestParquetWriter:
         """Test writing reflectivity record to Parquet."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = ParquetWriter(tmpdir)
-            
+
             refl_record = {
                 "id": None,
                 "created_at": datetime.now(timezone.utc),
@@ -277,12 +285,12 @@ class TestParquetWriter:
                 "dr": [0.01, 0.01, 0.02],
                 "dq": [0.001, 0.001, 0.002],
             }
-            
+
             path = writer.write_reflectivity(refl_record)
-            
+
             assert path.exists()
             assert path.suffix == ".parquet"
-            
+
             # Read single file using ParquetFile to avoid dataset discovery
             pf = pq.ParquetFile(str(path))
             table = pf.read()
@@ -294,7 +302,7 @@ class TestParquetWriter:
         """Test writing full assembly result to Parquet."""
         with tempfile.TemporaryDirectory() as tmpdir:
             writer = ParquetWriter(tmpdir)
-            
+
             refl_record = {
                 "id": None,
                 "created_at": datetime.now(timezone.utc),
@@ -320,7 +328,7 @@ class TestParquetWriter:
                 "dr": [0.01, 0.01],
                 "dq": [0.001, 0.001],
             }
-            
+
             sample_record = {
                 "id": None,
                 "created_at": datetime.now(timezone.utc),
@@ -333,7 +341,7 @@ class TestParquetWriter:
                 "layers": [],
                 "substrate_json": None,
             }
-            
+
             env_record = {
                 "id": None,
                 "created_at": datetime.now(timezone.utc),
@@ -345,19 +353,19 @@ class TestParquetWriter:
                 "relative_humidity": None,
                 "measurement_ids": [],
             }
-            
+
             assembly = AssemblyResult(
                 reflectivity=refl_record,
                 sample=sample_record,
                 environment=env_record,
             )
-            
+
             paths = writer.write(assembly)
-            
+
             assert "reflectivity" in paths
             assert "sample" in paths
             assert "environment" in paths
-            
+
             assert Path(paths["sample"]).exists()
             assert Path(paths["environment"]).exists()
 
@@ -369,7 +377,7 @@ class TestParquetWriter:
                 partition_by_facility=True,
                 partition_by_year=True,
             )
-            
+
             refl_record = {
                 "id": None,
                 "created_at": datetime.now(timezone.utc),
@@ -395,9 +403,9 @@ class TestParquetWriter:
                 "dr": [0.01],
                 "dq": [0.001],
             }
-            
+
             path = writer.write_reflectivity(refl_record)
-            
+
             # Check path contains partition directories
             path_str = str(path)
             assert "facility=SNS" in path_str
@@ -412,7 +420,7 @@ class TestIntegration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # 1. Assemble data
             assembler = DataAssembler()
-            
+
             reduced_data = ReducedData(
                 file_path="/tmp/test.txt",
                 q=[0.01, 0.02, 0.03, 0.04, 0.05],
@@ -420,7 +428,7 @@ class TestIntegration:
                 dr=[0.01, 0.01, 0.01, 0.02, 0.02],
                 dq=[0.001, 0.001, 0.001, 0.001, 0.001],
             )
-            
+
             parquet_data = ParquetData(
                 metadata=MetadataRecord(
                     instrument_id="REF_L",
@@ -431,14 +439,18 @@ class TestIntegration:
                     experiment_identifier="IPTS-12345",
                 ),
                 daslogs={
-                    "SampleTemp": type("DASLog", (), {
-                        "average_value": 300.0,
-                        "min_value": 298.0,
-                        "max_value": 302.0,
-                    })(),
+                    "SampleTemp": type(
+                        "DASLog",
+                        (),
+                        {
+                            "average_value": 300.0,
+                            "min_value": 298.0,
+                            "max_value": 302.0,
+                        },
+                    )(),
                 },
             )
-            
+
             model_data = ModelData(
                 file_path="/tmp/model.json",
                 layers=[
@@ -448,21 +460,21 @@ class TestIntegration:
                         interface=5.0,
                         material=ModelMaterial(name="Au", rho=4.5),
                     ),
-                ]
+                ],
             )
-            
+
             result = assembler.assemble(
                 reduced=reduced_data,
                 parquet=parquet_data,
                 model=model_data,
             )
-            
+
             # 2. Check assembly succeeded
             assert not result.has_errors, f"Assembly failed: {result.errors}"
-            
+
             # 3. Write to Parquet
             paths = write_assembly_to_parquet(result, tmpdir)
-            
+
             # 4. Verify output
             assert len(paths) >= 1
             for path in paths.values():
@@ -471,3 +483,69 @@ class TestIntegration:
                 pf = pq.ParquetFile(str(path))
                 table = pf.read()
                 assert table.num_rows == 1
+
+
+class TestAssembleWorkflow:
+    """Pull-based ingestion from a standard refl1d/AuRE workflow run directory."""
+
+    def _make_run_dir(self, tmp_path):
+        run = tmp_path / "run"
+        run.mkdir()
+        reduced = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+        (run / "run_info.json").write_text(
+            json.dumps(
+                {
+                    "data_file": str(reduced),
+                    "data_files": [{"file": str(reduced), "label": "REFL_226658"}],
+                    "sample_description": "Cu / Ti on Si",
+                }
+            )
+        )
+        (run / "final_state.json").write_text(
+            json.dumps(
+                {
+                    "final_chi2": 1.23,
+                    "state": {
+                        "best_chi2": 1.23,
+                        "states": [
+                            {"extra_description": "OCV in 0.1 M NaHCO3 electrolyte, pH 8.25"}
+                        ],
+                    },
+                }
+            )
+        )
+        return run
+
+    def test_pull_parses_conditions_into_environment(self, tmp_path):
+        run = self._make_run_dir(tmp_path)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        assert result.reflectivity is not None
+        env = result.environment
+        assert env is not None
+        assert env["control_mode"] == "open_circuit"
+        assert env["pH"] == 8.25
+        assert env["electrolyte"] == {"name": "NaHCO3", "concentration_M": 0.1}
+        # description carried verbatim from the run state
+        assert "OCV" in env["description"]
+
+    def test_missing_run_info_is_an_error(self, tmp_path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        result = DataAssembler().assemble_workflow(empty)
+        assert result.has_errors
+
+    def test_read_fit_state_prefers_final_state(self, tmp_path):
+        run = self._make_run_dir(tmp_path)
+        chi, extra = DataAssembler._read_fit_state(run)
+        assert chi == 1.23
+        assert "OCV" in extra
+
+    def test_find_err_json_locates_refl1d_output(self, tmp_path):
+        run = tmp_path / "run"
+        (run / "refl1d_output" / "fit_iter0_dream").mkdir(parents=True)
+        err = run / "refl1d_output" / "fit_iter0_dream" / "None-err.json"
+        err.write_text("{}")
+        assert DataAssembler._find_err_json(run) == str(err)
+        assert DataAssembler._find_err_json(tmp_path / "nope") is None

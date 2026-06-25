@@ -22,6 +22,7 @@ def build_reflectivity_model_record(
     warnings: list[str],
     errors: list[str],
     needs_review: dict[str, Any],
+    chi_squared: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build a reflectivity model record from parsed model data.
@@ -116,6 +117,7 @@ def build_reflectivity_model_record(
             "dataset_index": model.dataset_index,
             "num_parameters": num_parameters,
             "num_free_parameters": num_free_parameters,
+            "chi_squared": chi_squared,
             # Layers
             "layers": layers_structs,
             # Full JSON
