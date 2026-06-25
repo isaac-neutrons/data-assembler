@@ -22,6 +22,7 @@ def build_environment_record(
     instrument_handler: Optional[Type[Instrument]] = None,
     model: Optional[ModelData] = None,
     description_override: Optional[str] = None,
+    conditions: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Build an environment record from parquet daslogs.
@@ -59,6 +60,9 @@ def build_environment_record(
         if model and model.ambient:
             ambient_medium = model.ambient.material.name
 
+        # Electrochemical conditions (parsed upstream from the run description)
+        cond = conditions or {}
+
         # Build the record matching ENVIRONMENT_SCHEMA
         record = {
             # Base fields
@@ -70,12 +74,16 @@ def build_environment_record(
             "ambient_medium": {
                 "name": ambient_medium,
                 "mass": None,
-                "density":None,
+                "density": None,
             },
             "temperature": extracted.temperature,
             "pressure": extracted.pressure,
-            "potential": None,
             "relative_humidity": extracted.relative_humidity,
+            "potential": cond.get("potential"),
+            "potential_scale": cond.get("potential_scale"),
+            "control_mode": cond.get("control_mode"),
+            "electrolyte": cond.get("electrolyte"),
+            "pH": cond.get("pH"),
             "measurement_ids": [],
         }
 

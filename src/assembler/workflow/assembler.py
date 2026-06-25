@@ -57,6 +57,8 @@ class DataAssembler:
         environment_description: Optional[str] = None,
         sample_id: Optional[str] = None,
         raw_file_path: Optional[str] = None,
+        conditions: Optional[dict[str, Any]] = None,
+        chi_squared: Optional[float] = None,
     ) -> AssemblyResult:
         """
         Assemble data from parsed sources into schema-ready records.
@@ -132,12 +134,14 @@ class DataAssembler:
                 needs_review=result.needs_review,
                 model=model,
                 description_override=environment_description,
+                conditions=conditions,
             )
-        elif environment_description is not None:
-            # Create a minimal environment record from the description alone
+        elif environment_description is not None or conditions:
+            # Create a minimal environment record from the description/conditions alone
             result.environment = self._build_minimal_environment(
                 description=environment_description,
                 model=model,
+                conditions=conditions,
             )
 
         # Step 3: Build Sample record from model (skip if reusing existing sample)
@@ -167,6 +171,7 @@ class DataAssembler:
                 warnings=result.warnings,
                 errors=result.errors,
                 needs_review=result.needs_review,
+                chi_squared=chi_squared,
             )
 
         return result
@@ -197,8 +202,9 @@ class DataAssembler:
 
     @staticmethod
     def _build_minimal_environment(
-        description: str,
+        description: Optional[str] = None,
         model: Optional[ModelData] = None,
+        conditions: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """
         Build a minimal environment record when no parquet data is available.
@@ -221,6 +227,7 @@ class DataAssembler:
         if model and model.ambient:
             ambient_medium = model.ambient.material.name
 
+        cond = conditions or {}
         return {
             "id": str(uuid.uuid4()),
             "created_at": datetime.now(timezone.utc),
@@ -232,8 +239,12 @@ class DataAssembler:
             },
             "temperature": None,
             "pressure": None,
-            "potential": None,
             "relative_humidity": None,
+            "potential": cond.get("potential"),
+            "potential_scale": cond.get("potential_scale"),
+            "control_mode": cond.get("control_mode"),
+            "electrolyte": cond.get("electrolyte"),
+            "pH": cond.get("pH"),
             "measurement_ids": [],
         }
 
