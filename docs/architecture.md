@@ -1,351 +1,144 @@
-# Data Assembler - Technical Architecture
+# Architecture: data-assembler
 
-## Overview
+This document records the design decisions behind the data-assembler's AI-ready store so they
+are not accidentally undone. Code and schema changes should be checked against the invariants
+in §7 before merging. (This supersedes the earlier `groundtruths.md`.)
 
-The Data Assembler is an automated reflectivity data ingestion workflow that combines three data sources into a unified schema for the scientific data lakehouse. It produces Iceberg-compatible Parquet files with linked records following a hierarchical data model.
+## 1. Purpose
 
-## Data Sources
+The data-assembler turns neutron-reflectometry artifacts (reduced data, fit problems, run
+metadata) into a neutral, typed, **AI-ready store** (Parquet, mirrored as JSON). This store is
+the facility's source of truth. Downstream representations — notably the ISAAC AI-Ready Record
+produced by `nr-isaac-format` — are *exports* derived from it, never the other way around.
 
-| Source | Format | Key Data |
-|--------|--------|----------|
-| **Reduced Data** | Text file (`.txt`) | Q, R, dR, dQ arrays; reduction metadata (version, time, angles) |
-| **Parquet Metadata** | Parquet (from nexus-processor) | DAS logs for environment conditions; run metadata |
-| **Model Data** | JSON (refl1d/bumps) | Layer stack with materials, thicknesses, and SLD values |
+## 2. Two distinct entities
 
-## Architecture
+The store captures **two conceptually separate things**, each independently queryable:
 
-### Component Diagram
+1. **Run data** — what was *measured*. One physical acquisition = one run = one `reflectivity`
+   record (`q/r/dr/dq`, `run_number`, instrument metadata).
+2. **Fit results** — what was *inferred*. The outcome of a fitting process: layer parameters
+   with uncertainties, χ², assumptions. A single fit may span **many runs** (co-refinement),
+   and the **same run-set may have several alternative fits**. The fit is the
+   `reflectivity_model` record (the first-class "fit" entity; `fit` is a schema alias).
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLI (cli/main.py)                               │
-│                    Commands: ingest, detect, find                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Parsers (parsers/)                                   │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
-│  │  ReducedParser  │  │  ParquetParser  │  │   ModelParser   │              │
-│  │                 │  │                 │  │                 │              │
-│  │  → ReducedData  │  │  → ParquetData  │  │  → ModelData    │              │
-│  │    - q, r, dr   │  │    - metadata   │  │    - layers     │              │
-│  │    - run info   │  │    - daslogs    │  │    - materials  │              │
-│  │    - angles     │  │    - sample     │  │    - SLDs       │              │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     DataAssembler (workflow/assembler.py)                    │
-│                                                                              │
-│  Orchestrates the assembly process:                                          │
-│  1. Calls record builders with parsed data                                   │
-│  2. Links records via UUID relationships                                     │
-│  3. Collects warnings, errors, and review flags                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Record Builders (workflow/builders/)                      │
-│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐  │
-│  │  reflectivity.py    │  │   environment.py    │  │     sample.py       │  │
-│  │                     │  │                     │  │                     │  │
-│  │  Reduced + Parquet  │  │  Parquet daslogs    │  │  Model layers       │  │
-│  │  → Reflectivity     │  │  → Environment      │  │  → Sample           │  │
-│  │    record           │  │    record           │  │    record           │  │
-│  └─────────────────────┘  └─────────────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│               Instrument Handlers (instruments/)                             │
-│                                                                              │
-│  InstrumentRegistry → REF_L (or GenericInstrument)                          │
-│                                                                              │
-│  Provides:                                                                   │
-│  - extract_environment(): Temperature, pressure from DAS logs               │
-│  - extract_metadata(): Slit widths, motor positions                         │
-│  - defaults: facility, probe, technique, environment description            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Writers (writers/)                                      │
-│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐  │
-│  │   ParquetWriter     │  │    JSONWriter       │  │     schemas.py      │  │
-│  │                     │  │                     │  │                     │  │
-│  │  Iceberg-ready      │  │  Debug/AI output    │  │  PyArrow schemas    │  │
-│  │  partitioned files  │  │  with full schema   │  │  for validation     │  │
-│  └─────────────────────┘  └─────────────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+Run data and fit results must never be conflated. A run is valid AI-ready data with no fit; a
+fit *references* runs but is not owned by any one of them.
 
-## Data Model
+## 3. Storage principle: keep everything at the run level
 
-### Record Hierarchy
+The reflectivity table is **one record per run** — the most scalable, facility-oriented
+granularity. Higher-level grouping (state, series, angle) is **never** a column in the
+reflectivity table; it is recovered by foreign-key query:
 
-Records are linked via UUIDs in a hierarchy that reflects the scientific workflow:
+- `reflectivity.sample_id`, `reflectivity.environment_id` — nullable FKs.
+- A **state** (one physical condition measured at several angles) is *derived* as **the set of
+  runs sharing `(sample_id, environment_id)`**. There is no `state_id` column, by design.
 
-```
-Sample (top level)
-│
-├── environment_ids: [uuid, ...]
-│
-└── Environment (experimental conditions)
-    │
-    ├── sample_id: uuid
-    ├── measurement_ids: [uuid, ...]
-    │
-    └── Reflectivity (measurement data)
-        │
-        ├── sample_id: uuid
-        └── environment_id: uuid
-```
+This keeps the run table pure and append-friendly, and lets any consumer reconstruct states,
+samples, and fits without the store committing to one grouping.
 
-### Schema Definitions
+## 4. Two orthogonal domain concepts: state vs co-refinement
 
-All schemas are defined as PyArrow schemas in `writers/schemas.py` for Iceberg compatibility.
+Independent; never merged in code or schema:
 
-#### Reflectivity Record
+- **State** — one *physical condition* (e.g. "in D2O at OCV"), typically measured at several
+  incident angles. Each angle is a **partial** = its own run.
+- **Co-refinement** — a *fitting strategy* that ties parameters across runs/states
+  (`shared_parameters` / `unshared_parameters`). It describes the **fit**, not the data layout.
 
-| Field | Type | Source |
-|-------|------|--------|
-| `id` | UUID | Generated |
-| `sample_id` | UUID | Linked from Sample |
-| `environment_id` | UUID | Linked from Environment |
-| `proposal_number` | string | Parquet metadata (IPTS) |
-| `facility` | string | Instrument defaults |
-| `laboratory` | string | Instrument defaults |
-| `instrument_name` | string | Parquet metadata |
-| `run_number` | string | Reduced/Parquet |
-| `run_title` | string | Parquet metadata |
-| `run_start` | timestamp | Parquet metadata |
-| `probe` | string | Instrument defaults ("neutrons") |
-| `technique` | string | Instrument defaults ("reflectivity") |
-| `technique_description` | string | Instrument defaults |
-| `is_simulated` | bool | Default false |
-| `raw_file_path` | string | Parquet metadata |
-| `reflectivity` | struct | Nested measurement data |
+A multi-state co-refinement produces many runs (across several states) sharing one sample, plus
+**one** fit linking all those runs with per-dataset parameters.
 
-The `reflectivity` struct contains:
-- `q`, `r`, `dr`, `dq`: float arrays from reduced data
-- `measurement_geometry`: string ("front reflection" or "back reflection")
-- `reduction_time`: timestamp
-- `reduction_version`: string
+## 5. Entity–relationship model
 
-#### Sample Record
+| Entity | Table | Key | Links out |
+|---|---|---|---|
+| Run (measured) | `reflectivity` | `id` (`run_number` for humans) | `sample_id`, `environment_id` |
+| Sample (physical) | `sample` | `id` | `environment_ids[]`, `fit_ids[]` |
+| Environment (condition) | `environment` | `id` | `measurement_ids[]` |
+| Fit (inferred) | `reflectivity_model` (alias `fit`) | `id` | `measurement_ids[]` (all runs), `sample_id`/`sample_ids[]` |
 
-| Field | Type | Source |
-|-------|------|--------|
-| `id` | UUID | Generated |
-| `description` | string | Generated from layers |
-| `main_composition` | string | Thickest layer material |
-| `geometry` | string | Optional |
-| `layers` | list[struct] | Model JSON layers |
-| `layers_json` | string | JSON serialization |
-| `substrate_json` | string | Bottom layer JSON |
-| `environment_ids` | list[UUID] | Linked |
+The **fit** record carries: `measurement_ids[]` (every run the fit used — never silently
+length-1); `datasets[]` (one per run: `{dataset_index, measurement_id, run_number,
+chi_squared, layers[]}` — per-dataset fitted parameters, so a co-refinement is self-contained);
+top-level `layers`/`chi_squared`/`dataset_index` mirroring the primary dataset (back-compat for
+the ISAAC writer); `fit_strategy`, `shared_parameters[]`, `unshared_parameters[]`, `model_json`
+(full ground truth). "Multiple fits per run-set" needs no special structure — each fit is its
+own row keyed by `id`.
 
-#### Environment Record
+## 6. Multi-state co-refinement: the explicit-states contract
 
-| Field | Type | Source |
-|-------|------|--------|
-| `id` | UUID | Generated |
-| `sample_id` | UUID | Linked from Sample |
-| `description` | string | Instrument defaults |
-| `ambient_medium` | string | Model ambient layer |
-| `temperature` | float | DAS logs |
-| `pressure` | float | DAS logs |
-| `relative_humidity` | float | DAS logs |
-| `measurement_ids` | list[UUID] | Linked |
+State membership is **explicit and user-named** — never inferred from data-file names, never
+from a shared-sample assumption. The authoritative input is `run_info.json` `states[]`:
 
-## Instrument System
-
-The instrument system allows instrument-specific handling of DAS logs and defaults.
-
-### InstrumentRegistry
-
-A decorator-based registry that maps instrument IDs to handlers:
-
-```python
-@InstrumentRegistry.register
-class REF_L(Instrument):
-    name = "REF_L"
-    aliases = ["BL4B", "BL-4B"]
-    defaults = InstrumentDefaults(
-        facility="SNS",
-        laboratory="ORNL",
-        probe="neutrons",
-        technique="reflectivity",
-        technique_description="Specular neutron reflectometry",
-    )
-```
-
-### DAS Log Extraction
-
-Each instrument defines which DAS log names to query for environment data:
-
-```python
-TEMPERATURE_LOGS = ["SampleTemp", "BL4B:SE:SampleTemp"]
-
-@classmethod
-def extract_environment(cls, parquet: ParquetData) -> ExtractedEnvironment:
-    temperature = cls.get_daslog_value(parquet, cls.TEMPERATURE_LOGS)
-    return ExtractedEnvironment(temperature=temperature)
-```
-
-## Parsers
-
-### ReducedParser
-
-Parses the SNS reduced reflectivity text format:
-
-```
-# Experiment IPTS-12345 Run 218386
-# Reduction quicknxs 4.0.0
-# Run title: Sample measurement
-# Run start time: 2024-01-15 10:30:00
-# Reduction time: 2024-01-15 11:00:00
-# DataRun  NormRun  TwoTheta  ...
-#   218386  218385    0.60    ...
-# Q(1/A)  R         dR        dQ
-0.0100   1.0e-1    1.0e-3    5.0e-4
-...
-```
-
-**Output:** `ReducedData` with:
-- `q`, `r`, `dr`, `dq` arrays
-- `experiment_id`, `run_number`
-- `reduction_version`, `reduction_time`
-- `runs[].two_theta` for multi-angle data
-
-### ParquetParser
-
-Reads nexus-processor output directory containing:
-- `metadata.parquet` → `MetadataRecord`
-- `sample.parquet` → `SampleRecord`
-- `daslogs.parquet` → `dict[str, DASLogRecord]`
-
-**Output:** `ParquetData` with metadata, sample, and daslogs dictionary.
-
-### ModelParser
-
-Parses refl1d/bumps JSON model format with reference resolution:
-
-```json
+```jsonc
 {
-  "$schema": "bumps-draft-03",
-  "references": { "id1": {"slot": {"value": 100.0}} },
-  "object": {
-    "sample": {
-      "layers": [
-        {"name": "air", "thickness": {"$ref": "#/references/..."}, ...}
-      ]
-    }
-  }
+  "sample_description": "…default stack…",
+  "states": [
+    { "name": "D2O OCV",                          // user-given, authoritative identity
+      "data_files": [ {"file": "…230539_1…"}, … ],// this state's angles
+      "extra_description": "OCV in D2O, pH 8.25",  // this state's conditions
+      "sample_description": "…optional override…"  // a state MAY have its own sample
+    },
+    { "name": "H2O OCV", "data_files": [ … ], "extra_description": "…" }
+  ]
+  // flat "data_files"/"data_file" are DERIVED/legacy; states[] is authoritative
 }
 ```
 
-**Output:** `ModelData` with:
-- `layers[]` with thickness, interface, material (name, rho, irho)
-- Properties: `ambient`, `substrate`, `film_layers`, `total_thickness`
+When `states[]` is absent the run is single-state (the whole `data_files` list is one state) —
+the back-compatible path. Assembly rules (`assembler.py: _assemble_workflow` /
+`_assemble_multistate`):
 
-## CLI Commands
+- Each state → its **own** environment record (from its conditions) and, when it declares one,
+  its **own** sample; otherwise the shared sample. `sample_id`/`environment_id` are assigned
+  **per state and not assumed shared**.
+- **Sample identity** (`run_info.distinct_sample`, default `false`): co-refined states are
+  usually *one* physical sample under several conditions → they share one `sample_id`. When
+  AuRE flags the states as **distinct physical samples** (`distinct_sample: true`), each state
+  gets its own `sample_id` (state 0 keeps the primary `result.sample`; states 1.. become
+  `additional_samples`), each sample links only to its own state's environment, and the fit
+  records every sample in `sample_ids[]`. Orthogonal to per-state structure.
+- Every run is tagged with its state's `(sample_id, environment_id)`.
+- The whole co-refinement is **one** fit (`fit_strategy: multi_state_coref`) over every run.
 
-### `ingest`
+Export (in `nr-isaac-format`): group by `(sample_id, environment_id)` → **one ISAAC record per
+state**; the shared fit supplies descriptors. Each record carries its `sample_id` as ISAAC
+`sample.sample_id`, and records sharing a `sample_id` are cross-linked with
+`links[].same_sample_as` — so `distinct_sample` (distinct ids per state) surfaces as unlinked
+records with distinct sample identities. No manifest, no file-name parsing.
 
-Main workflow command:
+## 7. Ground-truth invariants (do not break)
 
-```bash
-data-assembler ingest \
-    -r reduced.txt \      # Required: reduced data
-    -p parquet_dir/ \     # Optional: parquet metadata
-    -m model.json \       # Optional: layer model
-    -o output/ \          # Required: output directory
-    --json \              # Also write JSON
-    --debug               # Write debug schema JSON
-```
+1. **One reflectivity record per run.** `ingest`/`ingest-workflow` emit a record for *every*
+   data file, never just the first.
+2. **No grouping columns in `reflectivity`.** State/series/angle are derived from FKs.
+3. **The fit links all its runs.** `measurement_ids` reflects true cardinality; a
+   co-refinement records every dataset in `datasets[]`, not only the selected one.
+4. **Additive schema.** New fields are nullable; existing Parquet stays readable. Never
+   repurpose a field's meaning silently.
+5. **ISAAC is downstream.** No ISAAC concept (series, record-per-state, ULIDs) leaks into the
+   store schema. The store depends on no exporter.
+6. **Run data and fit results stay separable.** "Runs of sample S" must not require a fit;
+   "fits over run-set R" must not require re-deriving from raw files.
 
-### `detect`
+## 8. Code map
 
-Identify file type:
+- `writers/schemas.py` — the PyArrow table schemas (the contract).
+- `workflow/assembler.py` — `assemble` (single measurement) and `assemble_workflow` /
+  `_assemble_multistate` (pull from an AuRE run dir → N runs + one fit).
+- `workflow/result.py` — `AssemblyResult` (carries `reflectivities` + per-state
+  `environments`/`samples` + the fit).
+- `workflow/builders/` — per-record builders (`reflectivity`, `sample`, `environment`,
+  `reflectivity_model`).
+- `writers/{parquet_writer,json_writer}.py` — write every run (file per `run_number`) + each
+  sample/environment (file per `id`) + the fit.
+- `parsers/` — `reduced`, `parquet`, `model` (refl1d/bumps), `manifest`.
 
-```bash
-data-assembler detect /path/to/file --json
-```
+## 9. Consequences for queries
 
-### `find`
-
-Locate related files by run number:
-
-```bash
-data-assembler find --run 218386 --search-path ~/data/
-```
-
-## Output Files
-
-### Parquet Output
-
-```
-output/
-├── reflectivity/
-│   └── facility=SNS/
-│       └── proposal=IPTS-12345/
-│           └── data.parquet
-├── sample/
-│   └── data.parquet
-└── environment/
-    └── data.parquet
-```
-
-### Debug Output
-
-`debug_schema.json` includes:
-- Full records with all fields
-- Missing field indicators
-- Field coverage percentages
-- Data source mapping
-- Warnings and review flags
-
-## Error Handling
-
-### AssemblyResult
-
-The assembler returns an `AssemblyResult` containing:
-- Assembled records (or None on failure)
-- `warnings`: Non-fatal issues
-- `errors`: Fatal issues
-- `needs_review`: Fields requiring human/AI review
-
-### Review Flags
-
-Fields that couldn't be automatically filled are flagged:
-
-```python
-needs_review = {
-    "environment_temperature": "Temperature not found in daslogs",
-    "sample_composition": "Could not determine main composition"
-}
-```
-
-## Extension Points
-
-### Adding Instruments
-
-1. Create a new file in `instruments/`
-2. Subclass `Instrument`
-3. Decorate with `@InstrumentRegistry.register`
-4. Implement `extract_environment()` with instrument-specific log names
-
-### Adding Output Formats
-
-1. Create a new writer in `writers/`
-2. Accept `AssemblyResult` and output directory
-3. Return dict of output paths
-
-### Schema Changes
-
-1. Update PyArrow schema in `writers/schemas.py`
-2. Update corresponding builder in `workflow/builders/`
-3. Update tests
+First-class queries against the store: *runs of a sample* (`reflectivity WHERE sample_id`); *a
+state* (`WHERE sample_id AND environment_id`); *runs in a fit* (`fit.measurement_ids`); *fits
+for a run* (`fit WHERE run_id IN measurement_ids`); *fits for a sample* (`sample.fit_ids`);
+*per-dataset fitted layers* (`fit.datasets[]`).
