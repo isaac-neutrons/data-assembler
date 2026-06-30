@@ -94,6 +94,12 @@ the back-compatible path. Assembly rules (`assembler.py: _assemble_workflow` /
 - Each state → its **own** environment record (from its conditions) and, when it declares one,
   its **own** sample; otherwise the shared sample. `sample_id`/`environment_id` are assigned
   **per state and not assumed shared**.
+- **Sample identity** (`run_info.distinct_sample`, default `false`): co-refined states are
+  usually *one* physical sample under several conditions → they share one `sample_id`. When
+  AuRE flags the states as **distinct physical samples** (`distinct_sample: true`), each state
+  gets its own `sample_id` (state 0 keeps the primary `result.sample`; states 1.. become
+  `additional_samples`), each sample links only to its own state's environment, and the fit
+  records every sample in `sample_ids[]`. Orthogonal to per-state structure.
 - Every run is tagged with its state's `(sample_id, environment_id)`.
 - The whole co-refinement is **one** fit (`fit_strategy: multi_state_coref`) over every run.
 

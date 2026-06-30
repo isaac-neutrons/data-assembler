@@ -383,6 +383,18 @@ class DataAssembler:
         if shared_sample and sample_desc:
             shared_sample["description"] = sample_desc
 
+        # Identity: do the co-refined states denote distinct physical samples
+        # (a sample per state) or one sample under several conditions (shared,
+        # the default)? Orthogonal to per-state structure — set by AuRE's
+        # ``distinct_sample`` flag. Tracking maps each owned sample id to the
+        # environments of its own states so links stay per-sample.
+        distinct_sample = bool(run_info.get("distinct_sample", False))
+        sample_by_id: dict[str, dict] = {}
+        if shared_sample:
+            sample_by_id[shared_sid] = shared_sample
+        sample_env_ids: dict[str, list[str]] = {}
+        per_state_sids: list[str] = []
+
         all_run_ids: list[str] = []
         reduced_refl_pairs: list[tuple] = []  # (ReducedData, refl) across all states
         env_ids: list[str] = []
@@ -408,19 +420,35 @@ class DataAssembler:
             env = self._build_minimal_environment(
                 description=extra, model=model, conditions=parse_conditions(extra)
             )
-            # Per-state sample override (kept distinct only when it actually differs).
+            # Per-state sample. By default every state shares one physical
+            # sample. A state gets its OWN sample record when either (a) the
+            # run is flagged ``distinct_sample`` (co-refined states are
+            # different physical samples) — state 0 keeps the shared/primary
+            # sample, states 1.. each get their own — or (b) it carries a
+            # distinct ``sample_description``.
             state_sid = shared_sid
+            state_sample_obj = shared_sample
             state_sample_desc = state.get("sample_description")
-            if state_sample_desc and state_sample_desc != sample_desc and model is not None:
+            wants_distinct = (distinct_sample and si > 0) or (
+                state_sample_desc and state_sample_desc != sample_desc
+            )
+            if wants_distinct and model is not None:
                 state_sample = build_sample_record(
                     model=model,
                     warnings=result.warnings,
                     errors=result.errors,
                     needs_review=result.needs_review,
                 )
-                state_sample["description"] = state_sample_desc
+                if state_sample_desc:
+                    state_sample["description"] = state_sample_desc
+                elif sample_desc:
+                    state_sample["description"] = sample_desc
                 result.additional_samples.append(state_sample)
                 state_sid = state_sample["id"]
+                state_sample_obj = state_sample
+            if state_sample_obj is not None:
+                sample_by_id[state_sid] = state_sample_obj
+            per_state_sids.append(state_sid)
 
             st_refls: list[dict] = []
             for r in st_reduced:
@@ -441,6 +469,7 @@ class DataAssembler:
                 reduced_refl_pairs.append((r, refl))
             env["measurement_ids"] = [r["id"] for r in st_refls]
             env_ids.append(env["id"])
+            sample_env_ids.setdefault(state_sid, []).append(env["id"])
 
             if si == 0:
                 result.reflectivity = st_refls[0] if st_refls else None
@@ -450,8 +479,12 @@ class DataAssembler:
                 result.additional_reflectivities.extend(st_refls)
                 result.additional_environments.append(env)
 
-        if shared_sample:
-            shared_sample["environment_ids"] = env_ids
+        # Link each owned sample to only the environments of its own states
+        # (shared sample → all envs; distinct samples → their own).
+        for sid, evs in sample_env_ids.items():
+            s = sample_by_id.get(sid)
+            if s is not None:
+                s["environment_ids"] = evs
 
         # ONE fit over every run across every state.
         if model is not None and model.raw_json is not None:
@@ -484,6 +517,12 @@ class DataAssembler:
                         "layers": layers_i,
                     }
                 )
+            # When the states are distinct samples the fit constrains all of
+            # them; record every sample id (deduped, order-preserved). The
+            # primary ``sample_id`` stays state 0's.
+            fit_sample_ids = (
+                list(dict.fromkeys(per_state_sids)) if distinct_sample else None
+            )
             result.reflectivity_model = build_reflectivity_model_record(
                 model=model,
                 measurement_ids=all_run_ids,
@@ -493,10 +532,20 @@ class DataAssembler:
                 chi_squared=chi_squared,
                 datasets=datasets,
                 sample_id=shared_sid,
+                sample_ids=fit_sample_ids,
                 fit_strategy="multi_state_coref",
             )
-            if result.reflectivity_model and shared_sample:
-                shared_sample["fit_ids"] = [result.reflectivity_model["id"]]
+            if result.reflectivity_model:
+                fid = result.reflectivity_model["id"]
+                target_sids = (
+                    list(dict.fromkeys(per_state_sids))
+                    if distinct_sample
+                    else ([shared_sid] if shared_sample else [])
+                )
+                for sid in target_sids:
+                    s = sample_by_id.get(sid)
+                    if s is not None:
+                        s.setdefault("fit_ids", []).append(fid)
 
         return result
 

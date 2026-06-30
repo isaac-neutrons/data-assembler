@@ -645,6 +645,71 @@ class TestAssembleWorkflow:
         d2o = next(e for e in result.environments if e.get("pH") == 8.25)
         assert d2o["control_mode"] == "open_circuit"
 
+    @staticmethod
+    def _layer(name, rho, thick=500.0):
+        return {
+            "name": name,
+            "thickness": {"value": thick},
+            "interface": {"value": 10.0},
+            "material": {"name": name, "rho": {"value": rho}},
+        }
+
+    def _add_problem_json(self, run, n_models):
+        """Write a minimal parseable refl1d problem.json with *n_models* experiments."""
+        sample = {"layers": [self._layer("Cu", 6.5), self._layer("Si", 2.07, 0.0)]}
+        (run / "problem.json").write_text(
+            json.dumps(
+                {
+                    "object": {
+                        "name": "fit",
+                        "models": [{"sample": sample} for _ in range(n_models)],
+                    },
+                    "libraries": {"refl1d": {"version": "1.0", "schema_version": "v1"}},
+                    "references": {},
+                }
+            )
+        )
+
+    def _set_run_info_flag(self, run, **flags):
+        ri = json.loads((run / "run_info.json").read_text())
+        ri.update(flags)
+        (run / "run_info.json").write_text(json.dumps(ri))
+
+    def test_multistate_default_shares_one_sample(self, tmp_path):
+        """Default (no distinct_sample): co-refined states share one physical sample."""
+        run = self._make_multistate_run_dir(tmp_path)  # 2 states: 2 + 1 runs
+        self._add_problem_json(run, n_models=3)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        assert len(result.samples) == 1  # one shared sample
+        sids = {r.get("sample_id") for r in result.reflectivities}
+        assert len(sids) == 1  # every run shares it
+        # the shared sample links to both states' environments
+        assert len(result.samples[0]["environment_ids"]) == 2
+        assert result.reflectivity_model["sample_ids"] == list(sids)
+
+    def test_multistate_distinct_sample_assigns_one_sample_per_state(self, tmp_path):
+        """distinct_sample=True: each co-refined state is its own physical sample."""
+        run = self._make_multistate_run_dir(tmp_path)  # 2 states: 2 + 1 runs
+        self._add_problem_json(run, n_models=3)
+        self._set_run_info_flag(run, distinct_sample=True)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        # two distinct physical samples (one per state)
+        assert len(result.samples) == 2
+        sids = {r.get("sample_id") for r in result.reflectivities}
+        assert len(sids) == 2
+        # the fit spans both samples
+        fit = result.reflectivity_model
+        assert set(fit["sample_ids"]) == sids
+        assert fit["sample_id"] in sids
+        # each sample links only to its own state's environment, and to the fit
+        for s in result.samples:
+            assert len(s["environment_ids"]) == 1
+            assert s["fit_ids"] == [fit["id"]]
+
 
 class TestFitRecord:
     """The reflectivity_model record as a first-class fit entity."""
