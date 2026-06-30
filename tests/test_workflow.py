@@ -23,6 +23,7 @@ from assembler.tools.detection import (
 )
 from assembler.tools.types import FileInfo, RelatedFiles
 from assembler.workflow import AssemblyResult, DataAssembler
+from assembler.workflow.builders import build_reflectivity_model_record
 from assembler.writers import ParquetWriter
 from assembler.writers.parquet_writer import write_assembly_to_parquet
 
@@ -549,3 +550,276 @@ class TestAssembleWorkflow:
         err.write_text("{}")
         assert DataAssembler._find_err_json(run) == str(err)
         assert DataAssembler._find_err_json(tmp_path / "nope") is None
+
+    def _make_multi_run_dir(self, tmp_path, n=3):
+        """A run whose state lists *n* partials (angles). No model/problem.json."""
+        run = tmp_path / "run"
+        run.mkdir()
+        reduced = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+        (run / "run_info.json").write_text(
+            json.dumps(
+                {
+                    "data_files": [
+                        {"file": str(reduced), "label": f"angle{i}"} for i in range(n)
+                    ],
+                    "sample_description": "Cu / Ti on Si",
+                }
+            )
+        )
+        # A fit state supplies the condition text → an environment is created,
+        # which the runs link to (so the state is recoverable).
+        (run / "final_state.json").write_text(
+            json.dumps(
+                {
+                    "final_chi2": 1.0,
+                    "state": {"states": [{"extra_description": "OCV in D2O"}]},
+                }
+            )
+        )
+        return run
+
+    def test_multi_file_run_emits_one_record_per_run(self, tmp_path):
+        """Every partial in the state becomes its own reflectivity record."""
+        run = self._make_multi_run_dir(tmp_path, n=3)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        assert len(result.reflectivities) == 3
+        assert len(result.additional_reflectivities) == 2
+        # Every run is tagged with the shared environment (the state's condition),
+        # so the partials are recoverable as one state downstream.
+        assert all(r.get("environment_id") for r in result.reflectivities)
+        env_ids = {r["environment_id"] for r in result.reflectivities}
+        assert len(env_ids) == 1  # same state → same environment for all angles
+        assert len(result.environment["measurement_ids"]) == 3
+
+    def test_single_file_run_unchanged(self, tmp_path):
+        """A one-partial state still yields exactly one run (back-compat)."""
+        run = self._make_multi_run_dir(tmp_path, n=1)
+        result = DataAssembler().assemble_workflow(run)
+        assert not result.has_errors, result.errors
+        assert len(result.reflectivities) == 1
+        assert result.additional_reflectivities == []
+
+    def _make_multistate_run_dir(self, tmp_path):
+        """A co-refinement run with explicit, user-named states[] (no model)."""
+        run = tmp_path / "run"
+        run.mkdir()
+        reduced = Path(__file__).parent / "data" / "REFL_226658_2_226659_partial.txt"
+
+        def df():
+            return {"file": str(reduced), "label": "angle"}
+
+        (run / "run_info.json").write_text(
+            json.dumps(
+                {
+                    "sample_description": "Cu / Ti on Si",
+                    "states": [
+                        {
+                            "name": "D2O OCV",
+                            "extra_description": "OCV in 0.1 M NaHCO3 electrolyte, pH 8.25",
+                            "data_files": [df(), df()],
+                        },
+                        {"name": "H2O OCV", "extra_description": "OCV in H2O", "data_files": [df()]},
+                    ],
+                }
+            )
+        )
+        return run
+
+    def test_multistate_groups_runs_per_state(self, tmp_path):
+        """Explicit states[] → per-state environments; runs tagged by state, not merged."""
+        run = self._make_multistate_run_dir(tmp_path)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        # 2 + 1 = 3 runs across two states
+        assert len(result.reflectivities) == 3
+        assert len(result.environments) == 2
+        # each run carries its state's environment_id; two distinct states
+        env_ids = {r.get("environment_id") for r in result.reflectivities}
+        assert len(env_ids) == 2
+        # each environment tracks its own runs (2 angles + 1 angle)
+        assert sorted(len(e["measurement_ids"]) for e in result.environments) == [1, 2]
+        # the D2O state's conditions were parsed into its own environment
+        d2o = next(e for e in result.environments if e.get("pH") == 8.25)
+        assert d2o["control_mode"] == "open_circuit"
+
+    @staticmethod
+    def _layer(name, rho, thick=500.0):
+        return {
+            "name": name,
+            "thickness": {"value": thick},
+            "interface": {"value": 10.0},
+            "material": {"name": name, "rho": {"value": rho}},
+        }
+
+    def _add_problem_json(self, run, n_models):
+        """Write a minimal parseable refl1d problem.json with *n_models* experiments."""
+        sample = {"layers": [self._layer("Cu", 6.5), self._layer("Si", 2.07, 0.0)]}
+        (run / "problem.json").write_text(
+            json.dumps(
+                {
+                    "object": {
+                        "name": "fit",
+                        "models": [{"sample": sample} for _ in range(n_models)],
+                    },
+                    "libraries": {"refl1d": {"version": "1.0", "schema_version": "v1"}},
+                    "references": {},
+                }
+            )
+        )
+
+    def _set_run_info_flag(self, run, **flags):
+        ri = json.loads((run / "run_info.json").read_text())
+        ri.update(flags)
+        (run / "run_info.json").write_text(json.dumps(ri))
+
+    def test_multistate_default_shares_one_sample(self, tmp_path):
+        """Default (no distinct_sample): co-refined states share one physical sample."""
+        run = self._make_multistate_run_dir(tmp_path)  # 2 states: 2 + 1 runs
+        self._add_problem_json(run, n_models=3)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        assert len(result.samples) == 1  # one shared sample
+        sids = {r.get("sample_id") for r in result.reflectivities}
+        assert len(sids) == 1  # every run shares it
+        # the shared sample links to both states' environments
+        assert len(result.samples[0]["environment_ids"]) == 2
+        assert result.reflectivity_model["sample_ids"] == list(sids)
+
+    def test_multistate_distinct_sample_assigns_one_sample_per_state(self, tmp_path):
+        """distinct_sample=True: each co-refined state is its own physical sample."""
+        run = self._make_multistate_run_dir(tmp_path)  # 2 states: 2 + 1 runs
+        self._add_problem_json(run, n_models=3)
+        self._set_run_info_flag(run, distinct_sample=True)
+        result = DataAssembler().assemble_workflow(run)
+
+        assert not result.has_errors, result.errors
+        # two distinct physical samples (one per state)
+        assert len(result.samples) == 2
+        sids = {r.get("sample_id") for r in result.reflectivities}
+        assert len(sids) == 2
+        # the fit spans both samples
+        fit = result.reflectivity_model
+        assert set(fit["sample_ids"]) == sids
+        assert fit["sample_id"] in sids
+        # each sample links only to its own state's environment, and to the fit
+        for s in result.samples:
+            assert len(s["environment_ids"]) == 1
+            assert s["fit_ids"] == [fit["id"]]
+
+
+class TestFitRecord:
+    """The reflectivity_model record as a first-class fit entity."""
+
+    def _model(self, num_experiments=2):
+        return ModelData(
+            file_path="/tmp/problem.json",
+            layers=[
+                ModelLayer(
+                    name="Cu",
+                    thickness=500.0,
+                    interface=10.0,
+                    material=ModelMaterial(name="Cu", rho=6.5),
+                ),
+            ],
+            raw_json={
+                "object": {"name": "cu_fit", "models": [{} for _ in range(num_experiments)]},
+                "libraries": {"refl1d": {"version": "1.0", "schema_version": "v1"}},
+                "references": {"p1": {"fixed": False}, "p2": {"fixed": True}},
+            },
+            dataset_index=0,
+        )
+
+    def test_fit_record_links_all_runs_with_per_dataset_params(self):
+        model = self._model(num_experiments=2)
+        datasets = [
+            {
+                "dataset_index": 0,
+                "measurement_id": "run-a",
+                "run_number": "100",
+                "chi_squared": 1.1,
+                "layers": model.layers,
+            },
+            {
+                "dataset_index": 1,
+                "measurement_id": "run-b",
+                "run_number": "101",
+                "chi_squared": 2.2,
+                "layers": model.layers,
+            },
+        ]
+        rec = build_reflectivity_model_record(
+            model,
+            measurement_ids=["run-a", "run-b"],
+            warnings=[],
+            errors=[],
+            needs_review={},
+            chi_squared=1.5,
+            datasets=datasets,
+            sample_id="sample-x",
+        )
+        assert rec["measurement_ids"] == ["run-a", "run-b"]
+        assert rec["sample_id"] == "sample-x"
+        assert rec["sample_ids"] == ["sample-x"]
+        assert rec["num_experiments"] == 2
+        assert rec["fit_strategy"] == "single_state_coref"
+        assert len(rec["datasets"]) == 2
+        assert [d["dataset_index"] for d in rec["datasets"]] == [0, 1]
+        assert rec["datasets"][1]["measurement_id"] == "run-b"
+        # top-level layers mirror the primary (dataset_index 0)
+        assert len(rec["layers"]) == 1
+        assert len(rec["datasets"][0]["layers"]) == 1
+
+    def test_single_dataset_synthesized_when_not_provided(self):
+        model = self._model(num_experiments=1)
+        rec = build_reflectivity_model_record(
+            model,
+            measurement_ids=["run-a"],
+            warnings=[],
+            errors=[],
+            needs_review={},
+            chi_squared=1.0,
+        )
+        assert rec["fit_strategy"] == "single"
+        assert len(rec["datasets"]) == 1
+        assert rec["datasets"][0]["measurement_id"] == "run-a"
+
+    def test_fit_record_round_trips_through_parquet(self, tmp_path):
+        """The nested datasets[] struct must validate against the schema."""
+        model = self._model(num_experiments=2)
+        datasets = [
+            {"dataset_index": i, "measurement_id": f"r{i}", "run_number": str(i),
+             "chi_squared": None, "layers": model.layers}
+            for i in range(2)
+        ]
+        rec = build_reflectivity_model_record(
+            model, ["r0", "r1"], [], [], {}, chi_squared=1.0,
+            datasets=datasets, sample_id="s",
+        )
+        path = ParquetWriter(tmp_path).write_reflectivity_model(rec)
+        back = pq.ParquetFile(str(path)).read().to_pylist()[0]
+        assert len(back["datasets"]) == 2
+        assert back["measurement_ids"] == ["r0", "r1"]
+        assert back["sample_id"] == "s"
+
+
+class TestAssemblyResultReflectivities:
+    """The reflectivities property aggregates primary + additional runs."""
+
+    def test_reflectivities_property(self):
+        r = AssemblyResult(
+            reflectivity={"id": "a", "run_number": "1"},
+            additional_reflectivities=[
+                {"id": "b", "run_number": "2"},
+                {"id": "c", "run_number": "3"},
+            ],
+        )
+        assert [x["id"] for x in r.reflectivities] == ["a", "b", "c"]
+        assert r.is_complete
+
+    def test_reflectivities_empty(self):
+        assert AssemblyResult().reflectivities == []
+        assert not AssemblyResult().is_complete

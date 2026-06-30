@@ -16,10 +16,17 @@ class AssemblyResult:
     Contains the assembled records (dicts matching schema) and any issues encountered.
 
     Attributes:
-        reflectivity: The assembled reflectivity record (dict matching REFLECTIVITY_SCHEMA)
+        reflectivity: The primary reflectivity record (dict matching REFLECTIVITY_SCHEMA).
+            For a single-angle measurement this is the only run; for a multi-angle
+            state it is the first partial. Kept as the primary for back-compat.
+        additional_reflectivities: Any further per-run reflectivity records (the other
+            angles/partials of the same state). Use the ``reflectivities`` property to
+            iterate all runs (primary first).
         sample: The assembled sample record (dict matching SAMPLE_SCHEMA)
         environment: The assembled environment record (dict matching ENVIRONMENT_SCHEMA)
-        reflectivity_model: The assembled model record (dict matching REFLECTIVITY_MODEL_SCHEMA)
+        reflectivity_model: The assembled fit record (dict matching REFLECTIVITY_MODEL_SCHEMA).
+            One fit per assembly; for a co-refinement it links all runs and carries
+            per-dataset parameters.
         reduced_file: Path to source reduced data file
         parquet_dir: Path to source parquet directory
         model_file: Path to source model JSON file
@@ -30,8 +37,14 @@ class AssemblyResult:
 
     # Assembled records (dicts matching schemas)
     reflectivity: Optional[dict[str, Any]] = None
+    additional_reflectivities: list[dict[str, Any]] = field(default_factory=list)
     sample: Optional[dict[str, Any]] = None
+    # Further per-state samples for a multi-state co-refinement whose states do
+    # not share one physical sample (usually empty: co-refinement shares a sample).
+    additional_samples: list[dict[str, Any]] = field(default_factory=list)
     environment: Optional[dict[str, Any]] = None
+    # Further per-state environments (one condition each) of a multi-state run.
+    additional_environments: list[dict[str, Any]] = field(default_factory=list)
     reflectivity_model: Optional[dict[str, Any]] = None
 
     # External references (for linking to existing records)
@@ -48,6 +61,46 @@ class AssemblyResult:
 
     # Fields that need AI/human assistance
     needs_review: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def reflectivities(self) -> list[dict[str, Any]]:
+        """All per-run reflectivity records (primary first).
+
+        For a single run this is ``[reflectivity]``; for a multi-angle state it is
+        the primary partial followed by ``additional_reflectivities``. Writers and
+        exporters should iterate this rather than ``reflectivity`` alone.
+        """
+        out: list[dict[str, Any]] = []
+        if self.reflectivity is not None:
+            out.append(self.reflectivity)
+        out.extend(self.additional_reflectivities)
+        return out
+
+    @property
+    def environments(self) -> list[dict[str, Any]]:
+        """All distinct environment records (primary first), de-duplicated by id."""
+        return self._distinct(self.environment, self.additional_environments)
+
+    @property
+    def samples(self) -> list[dict[str, Any]]:
+        """All distinct sample records (primary first), de-duplicated by id."""
+        return self._distinct(self.sample, self.additional_samples)
+
+    @staticmethod
+    def _distinct(
+        primary: Optional[dict[str, Any]], rest: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        seen: set = set()
+        for rec in ([primary] if primary else []) + list(rest):
+            if not rec:
+                continue
+            key = rec.get("id", id(rec))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(rec)
+        return out
 
     @property
     def is_complete(self) -> bool:
@@ -76,6 +129,13 @@ class AssemblyResult:
             lines.append(f"    Q points: {len(q)}")
             if q:
                 lines.append(f"    Q range: {min(q):.4f} - {max(q):.4f} Å⁻¹")
+            if self.additional_reflectivities:
+                extra = ", ".join(
+                    str(r.get("run_number")) for r in self.additional_reflectivities
+                )
+                lines.append(
+                    f"    +{len(self.additional_reflectivities)} more run(s): {extra}"
+                )
         else:
             lines.append("  Reflectivity: Not assembled")
 

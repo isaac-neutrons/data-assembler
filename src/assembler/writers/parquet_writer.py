@@ -153,17 +153,30 @@ class ParquetWriter:
         """
         paths: dict[str, str] = {}
 
-        if result.reflectivity:
-            path = self.write_reflectivity(result.reflectivity, **partition_kwargs)
-            paths["reflectivity"] = str(path)
+        # Write every run record (a multi-angle state has several). Each is
+        # keyed by run_number in its filename, so the N files don't collide.
+        refl_paths = []
+        for refl in result.reflectivities:
+            path = self.write_reflectivity(refl, **partition_kwargs)
+            refl_paths.append(str(path))
+        if refl_paths:
+            paths["reflectivity"] = refl_paths[0]
+            if len(refl_paths) > 1:
+                paths["reflectivities"] = refl_paths
 
-        if result.sample:
-            path = self.write_sample(result.sample)
-            paths["sample"] = str(path)
+        # A multi-state run has one sample/environment per state (each keyed by
+        # id in its filename, so the writes don't collide).
+        sample_paths = [str(self.write_sample(s)) for s in result.samples]
+        if sample_paths:
+            paths["sample"] = sample_paths[0]
+            if len(sample_paths) > 1:
+                paths["samples"] = sample_paths
 
-        if result.environment:
-            path = self.write_environment(result.environment)
-            paths["environment"] = str(path)
+        env_paths = [str(self.write_environment(e)) for e in result.environments]
+        if env_paths:
+            paths["environment"] = env_paths[0]
+            if len(env_paths) > 1:
+                paths["environments"] = env_paths
 
         if result.reflectivity_model:
             path = self.write_reflectivity_model(result.reflectivity_model)
@@ -201,8 +214,11 @@ class ParquetWriter:
         partition_dir = self._get_partition_path("reflectivity", facility, year)
         partition_dir.mkdir(parents=True, exist_ok=True)
 
-        run_number = record.get("run_number") or record.get("id") or "unknown"
-        filename = f"{run_number}.parquet"
+        # Key on the always-unique record id: run_number can repeat across a
+        # state's partials, or be "Unknown" when unparseable — keying on it would
+        # silently overwrite distinct runs. The run_number stays a queryable column.
+        record_id = record.get("id") or record.get("run_number") or "unknown"
+        filename = f"{record_id}.parquet"
         output_path = partition_dir / filename
 
         pq.write_table(table, output_path)
@@ -322,14 +338,25 @@ def write_assembly_to_parquet(result: AssemblyResult, output_dir: str | Path) ->
     writer = ParquetWriter(output_dir)
     paths: dict[str, Path] = {}
 
-    if result.reflectivity:
-        paths["reflectivity"] = writer.write_reflectivity(result.reflectivity)
+    # Write every run record (a multi-angle state has several). Each file is
+    # keyed by run_number, so the N files do not collide.
+    refl_paths = [writer.write_reflectivity(refl) for refl in result.reflectivities]
+    if refl_paths:
+        paths["reflectivity"] = refl_paths[0]
+        if len(refl_paths) > 1:
+            paths["reflectivities"] = refl_paths
 
-    if result.sample:
-        paths["sample"] = writer.write_sample(result.sample)
+    sample_paths = [writer.write_sample(s) for s in result.samples]
+    if sample_paths:
+        paths["sample"] = sample_paths[0]
+        if len(sample_paths) > 1:
+            paths["samples"] = sample_paths
 
-    if result.environment:
-        paths["environment"] = writer.write_environment(result.environment)
+    env_paths = [writer.write_environment(e) for e in result.environments]
+    if env_paths:
+        paths["environment"] = env_paths[0]
+        if len(env_paths) > 1:
+            paths["environments"] = env_paths
 
     if result.reflectivity_model:
         paths["reflectivity_model"] = writer.write_reflectivity_model(result.reflectivity_model)

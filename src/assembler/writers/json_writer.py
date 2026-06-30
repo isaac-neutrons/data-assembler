@@ -115,6 +115,15 @@ class JSONWriter:
 
         return output_path
 
+    def _write_keyed(self, record: dict[str, Any], table: str) -> Path:
+        """Write *record* to ``<output_dir>/<table>/<id>.json`` (id-keyed, no collision)."""
+        sub = self.output_dir / table
+        sub.mkdir(parents=True, exist_ok=True)
+        output_path = sub / f"{record.get('id', table)}.json"
+        with open(output_path, "w") as f:
+            json.dump(record, f, cls=JSONEncoder, indent=2)
+        return output_path
+
     def write_all(self, result: AssemblyResult) -> dict[str, Path]:
         """
         Write all assembled data to JSON files.
@@ -127,14 +136,44 @@ class JSONWriter:
         """
         paths: dict[str, Path] = {}
 
-        if result.reflectivity:
-            paths["reflectivity"] = self.write_reflectivity(result.reflectivity)
+        refls = result.reflectivities
+        if len(refls) <= 1:
+            # Single run: flat json/reflectivity.json (back-compat).
+            if refls:
+                paths["reflectivity"] = self.write_reflectivity(refls[0])
+        else:
+            # Multi-angle state: one file per run under json/<run>/ to avoid
+            # collision; shared sample/environment/fit stay at the top level.
+            refl_paths = []
+            for i, refl in enumerate(refls):
+                # Key the subdir on the always-unique id (run_number can repeat
+                # across a state's partials or be "Unknown" → would collide).
+                key = refl.get("id") or refl.get("run_number") or f"run{i}"
+                sub = JSONWriter(self.output_dir / str(key))
+                refl_paths.append(sub.write_reflectivity(refl))
+            paths["reflectivity"] = refl_paths[0]
+            paths["reflectivities"] = refl_paths
 
-        if result.sample:
-            paths["sample"] = self.write_sample(result.sample)
+        # Single sample/environment stays flat (back-compat); multiple (one per
+        # state in a multi-state run) go under <table>/<id>.json so all are
+        # discoverable and none collide.
+        samples = result.samples
+        if len(samples) <= 1:
+            if samples:
+                paths["sample"] = self.write_sample(samples[0])
+        else:
+            sps = [self._write_keyed(s, "sample") for s in samples]
+            paths["sample"] = sps[0]
+            paths["samples"] = sps
 
-        if result.environment:
-            paths["environment"] = self.write_environment(result.environment)
+        envs = result.environments
+        if len(envs) <= 1:
+            if envs:
+                paths["environment"] = self.write_environment(envs[0])
+        else:
+            eps = [self._write_keyed(e, "environment") for e in envs]
+            paths["environment"] = eps[0]
+            paths["environments"] = eps
 
         if result.reflectivity_model:
             paths["reflectivity_model"] = self.write_reflectivity_model(result.reflectivity_model)
