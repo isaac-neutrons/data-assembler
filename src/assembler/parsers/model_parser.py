@@ -232,15 +232,20 @@ class ModelData:
                 return layer
         return None
 
-    def select_dataset(self, index: int) -> None:
+    def layers_for_dataset(self, index: int) -> list["ModelLayer"]:
         """
-        Re-parse layers from a specific experiment/dataset (0-indexed).
+        Parse the layer stack for a specific experiment/dataset WITHOUT mutating self.
 
-        For co-refinement models with multiple experiments, this selects
-        which experiment's sample layer stack to use.
+        Unlike :meth:`select_dataset`, this leaves ``self.layers`` and
+        ``self.dataset_index`` untouched, so the other datasets of a co-refinement
+        remain available. Used to materialize per-dataset fitted parameters for the
+        fit record.
 
         Args:
             index: 0-based experiment index
+
+        Returns:
+            The layer stack for that dataset
 
         Raises:
             ValueError: If raw_json is not available or index is out of range
@@ -258,9 +263,25 @@ class ModelData:
             )
 
         sample = models[index].get("sample") or {}
-        self.layers = []
-        for layer_data in sample.get("layers", []):
-            self.layers.append(ModelLayer.from_json(layer_data, references, self.error_data))
+        return [
+            ModelLayer.from_json(layer_data, references, self.error_data)
+            for layer_data in sample.get("layers", [])
+        ]
+
+    def select_dataset(self, index: int) -> None:
+        """
+        Re-parse layers from a specific experiment/dataset (0-indexed), mutating self.
+
+        For co-refinement models with multiple experiments, this selects
+        which experiment's sample layer stack to use.
+
+        Args:
+            index: 0-based experiment index
+
+        Raises:
+            ValueError: If raw_json is not available or index is out of range
+        """
+        self.layers = self.layers_for_dataset(index)
         self.dataset_index = index
 
     def get_probe_q(self, index: int) -> list[float]:

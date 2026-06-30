@@ -34,6 +34,24 @@ electrolyte = pa.struct(
     ]
 )
 
+# Per-layer fitted parameters (thickness/SLD/roughness + their fitted sigma).
+# Shared by the fit record's top-level ``layers`` (primary dataset) and each
+# entry of its per-dataset ``datasets`` list.
+layer_fit = pa.struct(
+    [
+        ("layer_number", pa.int32()),
+        ("name", pa.string()),
+        ("thickness", pa.float64()),
+        ("thickness_std", pa.float64()),
+        ("interface", pa.float64()),
+        ("interface_std", pa.float64()),
+        ("sld", pa.float64()),
+        ("sld_std", pa.float64()),
+        ("isld", pa.float64()),
+        ("isld_std", pa.float64()),
+    ]
+)
+
 # Schema for Reflectivity measurements
 REFLECTIVITY_SCHEMA = pa.schema(
     [
@@ -65,6 +83,12 @@ REFLECTIVITY_SCHEMA = pa.schema(
         ("r", pa.list_(pa.float64())),
         ("dr", pa.list_(pa.float64())),
         ("dq", pa.list_(pa.float64())),
+        # Relationship fields (run -> sample/environment). Nullable foreign keys
+        # kept at the run level: a "state" (one physical condition measured at
+        # several angles) is derivable as runs sharing (sample_id,
+        # environment_id) without any grouping column in this table.
+        ("sample_id", pa.string()),
+        ("environment_id", pa.string()),
     ],
 )
 
@@ -79,6 +103,8 @@ SAMPLE_SCHEMA = pa.schema(
         ("main_composition", pa.string()),
         ("geometry", pa.string()),
         ("environment_ids", pa.list_(pa.string())),
+        # Relationship to fit records constraining this sample (forward lookup).
+        ("fit_ids", pa.list_(pa.string())),
         # Layers as JSON string (nested struct alternative)
         # ("layers_json", pa.string()),
         (
@@ -135,8 +161,21 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
         # Base DataModel fields
         ("id", pa.string()),
         ("created_at", pa.timestamp("us", tz="UTC")),
-        # Relationship to reflectivity measurements
+        # Relationship to reflectivity measurements. Populated with ALL runs the
+        # fit used (one per dataset in a co-refinement), making the fit a
+        # first-class entity that links every run it constrains.
         ("measurement_ids", pa.list_(pa.string())),
+        # Relationship to sample(s) the fit constrains.
+        ("sample_id", pa.string()),
+        ("sample_ids", pa.list_(pa.string())),
+        # Fitting strategy + tied/free parameter assumptions (co-refinement).
+        pa.field(
+            "fit_strategy",
+            pa.string(),
+            metadata={b"description": b"single | single_state_coref | multi_state_coref"},
+        ),
+        ("shared_parameters", pa.list_(pa.string())),
+        ("unshared_parameters", pa.list_(pa.string())),
         # Model identification
         ("model_name", pa.string()),
         ("model_file_path", pa.string()),
@@ -160,22 +199,21 @@ REFLECTIVITY_MODEL_SCHEMA = pa.schema(
             pa.float64(),
             metadata={b"description": b"Reduced chi-squared goodness-of-fit of the model"},
         ),
-        # Layer summary extracted from the selected experiment
+        # Layer summary for the primary/selected dataset (mirrors
+        # datasets[primary].layers; kept top-level for ISAAC-writer back-compat).
+        ("layers", pa.list_(layer_fit)),
+        # Per-dataset fitted parameters: one entry per run the fit used, so a
+        # co-refinement is a complete, self-contained, queryable AI-ready record.
         (
-            "layers",
+            "datasets",
             pa.list_(
                 pa.struct(
                     [
-                        ("layer_number", pa.int32()),
-                        ("name", pa.string()),
-                        ("thickness", pa.float64()),
-                        ("thickness_std", pa.float64()),
-                        ("interface", pa.float64()),
-                        ("interface_std", pa.float64()),
-                        ("sld", pa.float64()),
-                        ("sld_std", pa.float64()),
-                        ("isld", pa.float64()),
-                        ("isld_std", pa.float64()),
+                        ("dataset_index", pa.int32()),
+                        ("measurement_id", pa.string()),
+                        ("run_number", pa.string()),
+                        ("chi_squared", pa.float64()),
+                        ("layers", pa.list_(layer_fit)),
                     ]
                 )
             ),
@@ -205,6 +243,10 @@ def get_schema_for_model(model_name: str) -> pa.Schema:
         "sample": SAMPLE_SCHEMA,
         "environment": ENVIRONMENT_SCHEMA,
         "reflectivity_model": REFLECTIVITY_MODEL_SCHEMA,
+        # Alias: the reflectivity_model record is the first-class "fit" entity
+        # (links all its runs, carries per-dataset params); new code may use
+        # either name.
+        "fit": REFLECTIVITY_MODEL_SCHEMA,
     }
     if model_name not in schemas:
         raise ValueError(f"Unknown model: {model_name}. Expected one of {list(schemas.keys())}")
